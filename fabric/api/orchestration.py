@@ -192,3 +192,50 @@ def claim_assignment(assignment_id: str, payload: dict):
             )
 
     return {"status": "claimed", "assignment_id": str(assignment_uuid)}
+
+
+@router.post("/assignments/{assignment_id}/attempts")
+def create_attempt(assignment_id: str, payload: dict):
+    assignment_uuid = as_uuid(assignment_id, "assignment_id")
+    node_uuid = as_uuid(payload["node_id"], "node_id")
+    attempt_id = uuid.uuid4()
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT task_id, node_id, status, attempt_count "
+                "FROM assignments WHERE assignment_id=%s",
+                (assignment_uuid,),
+            )
+            assignment = cur.fetchone()
+
+            if not assignment:
+                raise HTTPException(status_code=404, detail="assignment not found")
+            if assignment[1] != node_uuid:
+                raise HTTPException(status_code=403, detail="wrong node")
+            if assignment[2] != "claimed":
+                raise HTTPException(status_code=409, detail="assignment not claimed")
+
+            number = assignment[3] + 1
+
+            cur.execute(
+                "INSERT INTO attempts "
+                "(attempt_id, task_id, assignment_id, node_id, attempt_number, method, status, started_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,'running',now())",
+                (
+                    attempt_id, assignment[0], assignment_uuid,
+                    node_uuid, number, Jsonb(payload.get("method", {}))
+                ),
+            )
+
+            cur.execute(
+                "UPDATE assignments SET attempt_count=attempt_count+1 "
+                "WHERE assignment_id=%s",
+                (assignment_uuid,),
+            )
+
+    return {
+        "status": "running",
+        "attempt_id": str(attempt_id),
+        "attempt_number": number,
+    }
