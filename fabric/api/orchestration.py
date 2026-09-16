@@ -153,3 +153,42 @@ def create_assignment(assignment: AssignmentIn):
         conn.commit()
 
     return {"status": "assigned", "assignment_id": str(assignment_id), "task_id": str(task_uuid), "node_id": str(node_uuid)}
+
+
+@router.post("/assignments/{assignment_id}/claim")
+def claim_assignment(assignment_id: str, payload: dict):
+    assignment_uuid = as_uuid(assignment_id, "assignment_id")
+    node_uuid = as_uuid(payload["node_id"], "node_id")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT task_id, node_id, status FROM assignments "
+                "WHERE assignment_id = %s FOR UPDATE",
+                (assignment_uuid,),
+            )
+            assignment = cur.fetchone()
+
+            if not assignment:
+                raise HTTPException(status_code=404, detail="assignment not found")
+            if assignment[1] != node_uuid:
+                raise HTTPException(status_code=403, detail="wrong node")
+            if assignment[2] != "assigned":
+                raise HTTPException(status_code=409, detail="not claimable")
+
+            cur.execute(
+                "UPDATE assignments SET status='claimed', claimed_at=now() "
+                "WHERE assignment_id=%s",
+                (assignment_uuid,),
+            )
+            cur.execute(
+                "UPDATE tasks SET status='running', started_at=COALESCE(started_at,now()) "
+                "WHERE task_id=%s",
+                (assignment[0],),
+            )
+            cur.execute(
+                "UPDATE nodes SET status='busy' WHERE node_id=%s",
+                (node_uuid,),
+            )
+
+    return {"status": "claimed", "assignment_id": str(assignment_uuid)}
