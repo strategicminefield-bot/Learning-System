@@ -2,9 +2,11 @@ import os
 import psycopg
 from psycopg.types.json import Jsonb
 from fastapi import FastAPI, HTTPException
+from orchestration import router as orchestration_router
 from pydantic import BaseModel
 
 app = FastAPI(title='Learning Fabric API', version='0.3.0')
+app.include_router(orchestration_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
