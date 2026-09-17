@@ -45,6 +45,12 @@ try:
 except ImportError:
     strategy_router = None
 
+# Adaptive orchestration endpoints (Section 15)
+try:
+    from orchestration_endpoints_v15 import router as orchestration_v15_router
+except ImportError:
+    orchestration_v15_router = None
+
 from pydantic import BaseModel
 
 app = FastAPI(title='Learning Fabric API', version='1.0.0')
@@ -64,6 +70,8 @@ if knowledge_evolution_router:
     app.include_router(knowledge_evolution_router)
 if strategy_router:
     app.include_router(strategy_router)
+if orchestration_v15_router:
+    app.include_router(orchestration_v15_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
