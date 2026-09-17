@@ -33,9 +33,15 @@ try:
 except ImportError:
     cross_node_router = None
 
+# Knowledge evolution endpoints (Section 13)
+try:
+    from knowledge_evolution_endpoints import router as knowledge_evolution_router
+except ImportError:
+    knowledge_evolution_router = None
+
 from pydantic import BaseModel
 
-app = FastAPI(title='Learning Fabric API', version='0.8.0')
+app = FastAPI(title='Learning Fabric API', version='0.9.0')
 if orchestration_router:
     app.include_router(orchestration_router)
 if knowledge_graph_router:
@@ -48,6 +54,8 @@ if feedback_router:
     app.include_router(feedback_router)
 if cross_node_router:
     app.include_router(cross_node_router)
+if knowledge_evolution_router:
+    app.include_router(knowledge_evolution_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
