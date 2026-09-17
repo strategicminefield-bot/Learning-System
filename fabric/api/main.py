@@ -39,9 +39,15 @@ try:
 except ImportError:
     knowledge_evolution_router = None
 
+# Strategy learning endpoints (Section 14)
+try:
+    from strategy_endpoints import router as strategy_router
+except ImportError:
+    strategy_router = None
+
 from pydantic import BaseModel
 
-app = FastAPI(title='Learning Fabric API', version='0.9.0')
+app = FastAPI(title='Learning Fabric API', version='1.0.0')
 if orchestration_router:
     app.include_router(orchestration_router)
 if knowledge_graph_router:
@@ -56,6 +62,8 @@ if cross_node_router:
     app.include_router(cross_node_router)
 if knowledge_evolution_router:
     app.include_router(knowledge_evolution_router)
+if strategy_router:
+    app.include_router(strategy_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
