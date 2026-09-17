@@ -143,6 +143,8 @@ try:
     app.include_router(hardening_router)
 except ImportError:
     logger.warning("Section 22 hardening endpoints not available")
+except Exception as e:
+    logger.warning(f"Section 22 hardening failed to load: {e}")
 
 # Section 23: Evolutionary Cycles (Full Evolutionary Loop)
 if evolutionary_cycles_router:
@@ -152,8 +154,6 @@ if evolutionary_cycles_router:
         logger.warning(f"Section 23 evolutionary cycles failed to load: {e}")
 else:
     logger.warning("Section 23 evolutionary cycles endpoints not available")
-except Exception as e:
-    logger.warning(f"Section 22 hardening failed to load: {e}")
 
 if migration_router:
     app.include_router(migration_router)
