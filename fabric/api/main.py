@@ -2,6 +2,9 @@ import os
 import psycopg
 from psycopg.types.json import Jsonb
 from fastapi import FastAPI, HTTPException
+import logging
+
+logger = logging.getLogger(__name__)
 # Section routers (some require dependency fixes)
 try:
     from orchestration import router as orchestration_router
@@ -121,10 +124,12 @@ if governance_router:
 
 # Section 21: System-Level Evaluation
 try:
-    from .system_evaluation_endpoints import router as evaluation_router
+    from system_evaluation_endpoints import router as evaluation_router
     app.include_router(evaluation_router)
 except ImportError:
     logger.warning("Section 21 evaluation endpoints not available")
+except Exception as e:
+    logger.warning(f"Section 21 evaluation failed to load: {e}")
 
 if migration_router:
     app.include_router(migration_router)
