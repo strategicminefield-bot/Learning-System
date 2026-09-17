@@ -4,11 +4,13 @@ from psycopg.types.json import Jsonb
 from fastapi import FastAPI, HTTPException
 from orchestration import router as orchestration_router
 from knowledge_graph import router as knowledge_graph_router
+from retrieval_endpoints import router as retrieval_router
 from pydantic import BaseModel
 
-app = FastAPI(title='Learning Fabric API', version='0.4.0')
+app = FastAPI(title='Learning Fabric API', version='0.5.0')
 app.include_router(orchestration_router)
 app.include_router(knowledge_graph_router)
+app.include_router(retrieval_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
