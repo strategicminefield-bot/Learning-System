@@ -5,7 +5,6 @@ Task-aware context retrieval and delivery for execution nodes.
 
 import os
 import psycopg
-from psycopg.extras import RealDictCursor
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -117,7 +116,7 @@ def get_context_package(package_id: str) -> Dict[str, Any]:
     """
     try:
         with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT cp.package_id, cp.task_id, cp.node_id, cp.context_data,
@@ -136,16 +135,16 @@ def get_context_package(package_id: str) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail=f"Context package {package_id} not found")
 
         return {
-            "package_id": row["package_id"],
-            "task_id": row["task_id"],
-            "node_id": row["node_id"],
-            "trace_id": row["trace_id"],
-            "query_id": row["query_id"],
-            "context": row["context_data"],
-            "context_size_bytes": row["context_size_bytes"],
-            "item_count": row["item_count"],
-            "assembly_time_ms": row["assembly_time_ms"],
-            "created_at": str(row["created_at"]),
+            "package_id": row[0],
+            "task_id": row[1],
+            "node_id": row[2],
+            "context": row[3],
+            "context_size_bytes": row[4],
+            "item_count": row[5],
+            "assembly_time_ms": row[6],
+            "created_at": str(row[7]),
+            "trace_id": row[8],
+            "query_id": row[9],
         }
 
     except Exception as e:
@@ -162,7 +161,7 @@ def get_retrieval_trace(trace_id: str) -> Dict[str, Any]:
     """
     try:
         with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT trace_id, query_id,
@@ -185,7 +184,7 @@ def get_retrieval_trace(trace_id: str) -> Dict[str, Any]:
 
         # Retrieve individual items
         with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT item_id, source_type, source_id, relevance_score,
@@ -196,34 +195,42 @@ def get_retrieval_trace(trace_id: str) -> Dict[str, Any]:
                     """,
                     (trace_id,),
                 )
-                items = [dict(row) for row in cur.fetchall()]
+                items = [{
+                    "item_id": row[0],
+                    "source_type": row[1],
+                    "source_id": row[2],
+                    "relevance_score": row[3],
+                    "is_duplicate": row[4],
+                    "canonical_item_id": row[5],
+                    "item_metadata": row[6],
+                } for row in cur.fetchall()]
 
         return {
-            "trace_id": trace["trace_id"],
-            "query_id": trace["query_id"],
+            "trace_id": trace[0],
+            "query_id": trace[1],
             "considered": {
-                "outcomes": trace["outcomes_considered"],
-                "patterns": trace["patterns_considered"],
-                "insights": trace["insights_considered"],
-                "artifacts": trace["artifacts_considered"],
-                "graph_entities": trace["graph_entities_considered"],
+                "outcomes": trace[2],
+                "patterns": trace[3],
+                "insights": trace[4],
+                "artifacts": trace[5],
+                "graph_entities": trace[6],
             },
             "selected": {
-                "outcomes": trace["outcomes_selected"],
-                "patterns": trace["patterns_selected"],
-                "insights": trace["insights_selected"],
-                "artifacts": trace["artifacts_selected"],
-                "graph_entities": trace["graph_entities_selected"],
+                "outcomes": trace[7],
+                "patterns": trace[8],
+                "insights": trace[9],
+                "artifacts": trace[10],
+                "graph_entities": trace[11],
             },
             "metrics": {
-                "total_items": trace["total_items_returned"],
-                "deduplication_count": trace["deduplication_count"],
-                "filtered_by_threshold": trace["filtered_by_threshold"],
-                "execution_time_ms": trace["execution_time_ms"],
+                "total_items": trace[12],
+                "deduplication_count": trace[13],
+                "filtered_by_threshold": trace[14],
+                "execution_time_ms": trace[15],
             },
-            "status": trace["trace_status"],
-            "error": trace["trace_error"],
-            "created_at": str(trace["created_at"]),
+            "status": trace[16],
+            "error": trace[17],
+            "created_at": str(trace[18]),
             "items": items,
         }
 
@@ -240,7 +247,7 @@ def get_retrieval_query(query_id: str) -> Dict[str, Any]:
     """
     try:
         with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT rq.query_id, rq.task_id, rq.node_id, rq.assignment_id,
@@ -259,15 +266,15 @@ def get_retrieval_query(query_id: str) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail=f"Query {query_id} not found")
 
         return {
-            "query_id": row["query_id"],
-            "task_id": row["task_id"],
-            "node_id": row["node_id"],
-            "assignment_id": row["assignment_id"],
-            "query_params": row["query_params"],
-            "trace_id": row["trace_id"],
-            "package_id": row["package_id"],
-            "query_time_ms": row["query_time_ms"],
-            "created_at": str(row["created_at"]),
+            "query_id": row[0],
+            "task_id": row[1],
+            "node_id": row[2],
+            "assignment_id": row[3],
+            "query_params": row[4],
+            "query_time_ms": row[5],
+            "created_at": str(row[6]),
+            "trace_id": row[7],
+            "package_id": row[8],
         }
 
     except Exception as e:
@@ -319,7 +326,7 @@ def get_retrieval_feedback(feedback_id: str) -> Dict[str, Any]:
     """
     try:
         with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT feedback_id, package_id, node_id, usefulness_score,
@@ -336,15 +343,15 @@ def get_retrieval_feedback(feedback_id: str) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail=f"Feedback {feedback_id} not found")
 
         return {
-            "feedback_id": row["feedback_id"],
-            "package_id": row["package_id"],
-            "node_id": row["node_id"],
-            "usefulness_score": float(row["usefulness_score"]) if row["usefulness_score"] else None,
-            "used_items": row["used_items"] or [],
-            "assignment_id": row["assignment_id"],
-            "outcome_id": row["outcome_id"],
-            "feedback_text": row["feedback_text"],
-            "created_at": str(row["feedback_timestamp"]),
+            "feedback_id": row[0],
+            "package_id": row[1],
+            "node_id": row[2],
+            "usefulness_score": float(row[3]) if row[3] else None,
+            "used_items": row[4] or [],
+            "assignment_id": row[5],
+            "outcome_id": row[6],
+            "feedback_text": row[7],
+            "created_at": str(row[8]),
         }
 
     except Exception as e:
@@ -363,7 +370,7 @@ def list_task_retrievals(
     """
     try:
         with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT rq.query_id, rq.node_id, rq.created_at,
@@ -381,7 +388,19 @@ def list_task_retrievals(
                     """,
                     (task_id, limit),
                 )
-                rows = [dict(row) for row in cur.fetchall()]
+                rows = [{
+                    "query_id": row[0],
+                    "node_id": row[1],
+                    "created_at": str(row[2]),
+                    "trace_id": row[3],
+                    "total_items_returned": row[4],
+                    "execution_time_ms": row[5],
+                    "trace_status": row[6],
+                    "package_id": row[7],
+                    "item_count": row[8],
+                    "feedback_id": row[9],
+                    "usefulness_score": row[10],
+                } for row in cur.fetchall()]
 
         return {
             "task_id": task_id,
