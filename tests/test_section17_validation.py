@@ -21,7 +21,7 @@ from validation_engine import (
     get_validation_decision
 )
 
-DB_URL = "postgresql://fabric:fabric@localhost/learning_fabric"
+DB_URL = "postgresql://fabric:fabric@learning-fabric-postgres/learning_fabric"
 
 def get_conn():
     return psycopg2.connect(DB_URL)
