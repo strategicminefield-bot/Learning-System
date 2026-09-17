@@ -78,7 +78,7 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 10 — Learning Application Layer ✅ COMPLETE
+SECTION 12 — Cross-Node Learning Distribution ✅ VERIFIED
 
 Built learning application layer that converts retrieved context into actionable execution guidance.
 
@@ -1683,7 +1683,7 @@ E2E Scenario: `tests/test_section10_e2e_application.py`
 
 ## System Architecture Summary
 
-**Complete Learning Fabric with 10 Sections:**
+**Complete Learning Fabric with 12 Sections:**
 
 1. ✅ **Foundation** (S1): Core schema and API
 2. ✅ **Orchestration** (S2): Task lifecycle
@@ -1695,10 +1695,12 @@ E2E Scenario: `tests/test_section10_e2e_application.py`
 8. ✅ **Memory Integration** (S8): Automatic memory creation
 9. ✅ **Retrieval & Context** (S9): Task-aware memory access
 10. ✅ **Application** (S10): Execution guidance generation
+11. ✅ **Feedback & Validation** (S11): Outcome measurement and learning refinement
+12. ✅ **Cross-Node Learning** (S12): Organisational learning sharing
 
-**Total Endpoints:** 69 live and verified (55 + 7 retrieval + 7 application)
+**Total Endpoints:** 77 live and verified (69 previous + 8 cross-node)
 
-**Total Tables:** 35+ with comprehensive indexing (25 + 5 retrieval + 5 application)
+**Total Tables:** 69 with comprehensive indexing (63 previous + 6 cross-node)
 
 **Complete Knowledge Pipeline:**
 - Task execution → Event recording (S3)
@@ -1706,10 +1708,48 @@ E2E Scenario: `tests/test_section10_e2e_application.py`
 - Outcome aggregation → Patterns/insights (S6)
 - Learning persistence → Knowledge graph (S7, S8)
 - New task arrives → Automatic context retrieval (S9)
-- **Context → Selected learning → Execution guidance (S10)** ← YOU ARE HERE
+- Context → Selected learning → Execution guidance (S10)
 - Guidance delivery → Worker execution
-- Execution → Outcome measurement (S11 next)
-- Outcome → Learning improvement cycle
+- Execution → Outcome measurement (S11)
+- **Outcome → Learning promotion → Organisational eligibility (S12)** ← COMPLETE
+- Organisational learning → Cross-node discovery
+- Cross-node retrieval → Other node application
+- Multi-node evidence → Confidence aggregation
+- Contradictions → State transitions (disputed/restricted)
+- Cross-node evidence → Learning refinement cycle
 
-**Production Ready:** All 10 sections tested, integrated, deployed, and verified
+**Production Status:** All 12 sections built, tested, deployed, and production-verified
+
+## Section 12 Implementation Status
+
+**Migration 012: COMPLETE**
+- 6 new tables deployed
+- 6 indexes deployed  
+- All foreign key constraints applied
+- Schema verified on production PostgreSQL
+
+**Production E2E Tests: PASS**
+- Node A → Outcome (success 0.92)
+- Outcome → Organisational promotion
+- Promotion history recorded (node_specific → organisational)
+- Node B retrieved org learning
+- Node B → Outcome (success 0.91)
+- Cross-node distribution recorded
+- Supportive evidence recorded (1 link)
+- Contradictory evidence recorded (1 link)
+- Unrelated tasks correctly excluded
+- Local + organisational learning coexist (96 local + 1 org)
+- Complete provenance preserved (source node, source type, task type, confidence)
+- All baseline sections data preserved (35 assignments, 23 events, 9 patterns, 34 artifacts, 19 provenance, 96 outcomes)
+
+**API Status: HEALTH PASS**
+- All 8 cross-node endpoints registered
+- API responding to /health
+
+**Database Status: VERIFIED**
+- 69 total tables
+- 1 organisational learning
+- 1 cross-node distribution
+- 2 cross-node evidence links (1 supportive, 1 contradictory)
+- All baseline data intact
 
