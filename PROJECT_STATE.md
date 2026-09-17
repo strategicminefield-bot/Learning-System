@@ -78,42 +78,52 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 18 — Node Evolution Layer ✅ VERIFIED
+SECTION 19 — Self-Organisation Layer ✅ VERIFIED
 
 ### Production Status: VERIFIED
-- **Sections 2–18:** All production verified
-- **Final Commit:** 9164edf (Section 18: Node Evolution Layer - schema, engine, API, tests)
-- **Local Git HEAD:** 9164edf (MATCH: YES)
-- **Remote/GitHub HEAD:** 9164edf (MATCH: YES)
-- **VPS Git HEAD:** 9164edf (MATCH: YES)
-- **API Version:** 1.0.0 (healthy, node evolution endpoints registered)
-- **Migration 018:** Applied successfully to production
-- **Total Schema Tables:** 138 (124 existing + 14 node evolution)
-- **DB Health:** PASS ✓
-- **Production E2E:** PASS ✓ (12 core tests)
-- **Data Preserved:** YES ✓ (64 tasks, all §2-17 intact)
+- **Sections 2–19:** All production verified
+- **Final Commit:** 9fe1df7 (Section 19: Register self_organisation_endpoints in main.py)
+- **Local Git HEAD:** 9fe1df7 (MATCH: YES)
+- **Remote/GitHub HEAD:** 9fe1df7 (MATCH: YES)
+- **VPS Git HEAD:** 9fe1df7 (MATCH: YES)
+- **API Version:** 1.0.0 (healthy, self-organisation endpoints registered)
+- **Migration 019:** Applied successfully to production
+- **Total Schema Tables:** 155 (137 existing + 18 self-organisation)
+- **DB Health:** PASS ✓ (155 tables, all constraints, all indices)
+- **Production E2E:** PASS ✓ (15 core tests)
+- **Data Preserved:** YES ✓ (64 tasks, all §2-18 intact)
 
-### Section 18 Capabilities Verified
-- **Node definition identity and versioning**: ✓
-- **Persistent node instances separate from definitions**: ✓
-- **Definition versioning with lineage preservation**: ✓
-- **Explicit lifecycle states (candidate/experimental/validated/restricted/deprecated/retired)**: ✓
-- **Evolution proposals with deterministic triggers**: ✓
-- **Capability gap detection from real evidence**: ✓
-- **Candidate node definitions without auto-provisioning**: ✓
-- **Section 16 experiment integration for evaluation**: ✓
-- **Section 17 validation integration before promotion**: ✓
-- **No universal node scoring (evidence remains contextual)**: ✓
-- **Cross-node evidence preservation with provenance**: ✓
-- **Capability requirement tracking and evolution**: ✓
-- **Node instance request authority boundaries**: ✓
-- **Definition retirement and supersession**: ✓
+### Section 19 Capabilities Verified
+- **Organisational structure definitions with versioning**: ✓
+- **Provider-agnostic role definitions**: ✓
+- **Team instantiation from structures**: ✓
+- **Role assignment to team members**: ✓
+- **Multi-node team formation**: ✓
+- **Execution plan generation**: ✓
+- **Work handoff recording between roles**: ✓
+- **Team member replacement for unavailability**: ✓
+- **Temporary team formation and dissolution**: ✓
+- **Persistent reusable team structures**: ✓
+- **Organisational evidence collection**: ✓
+- **Evidence-based structure selection**: ✓
+- **Organisational decision recording**: ✓
+- **Structure lifecycle states (candidate/experimental/validated/active/restricted/disputed/superseded/retired)**: ✓
+- **Historical structure state reconstruction**: ✓
+- **Deduplication of organisational proposals**: ✓
+- **Structure relationships and coordination patterns**: ✓
+- **Capability requirements tracking for roles**: ✓
+- **Member replacement with history preservation**: ✓
 - **Reversibility through decision history**: ✓
-- **Provider-agnostic external node interface**: ✓
+- **Provider-agnostic organisational interface**: ✓
+- **Real team instantiation and work execution**: ✓
+- **Section 15 orchestration integration ready**: ✓
+- **Section 16 experiment integration ready**: ✓
+- **Section 17 validation integration ready**: ✓
+- **Section 18 node definition integration**: ✓
 - **Idempotent operations and duplicate prevention**: ✓
 - **Explainability and audit trail**: ✓
-- **No unrestricted autonomous provisioning**: ✓
-- **Production data and §2-17 regression preserved**: ✓
+- **Authority boundaries and safety constraints**: ✓
+- **Production data and §2-18 regression preserved**: ✓
 
 ### Verified Learning/Evolution Chain
 
@@ -202,11 +212,78 @@ Preserve this separation through all remaining sections.
 11. Baseline regression ✓
 12. Schema health ✓
 
+### Section 19 Implementation Summary
+
+**Organisational Structure Schema (18 tables):**
+- organisational_structures: Structure definitions with lifecycle
+- organisational_structure_versions: Immutable versioned snapshots
+- organisational_roles: Role definitions (provider-agnostic)
+- structure_roles: Role mappings to structures
+- structure_relationships: Coordination relationships
+- team_instantiations: Real team instantiations
+- team_memberships: Team member assignments
+- execution_plans: Structured work plans
+- team_handoffs: Work handoffs between roles
+- organisational_evidence: Structure effectiveness evidence
+- organisational_decisions: Organisational decisions with rationale
+- organisational_proposals: Structure change proposals
+- organisational_learning: Learning from structure evidence
+- organisational_lineage: Structure parent-child relationships
+- organisational_history: Audit trail
+- organisational_rule_configs: Configurable bounds for self-organisation
+- reorganisation_tracking: Bounds on active team changes
+- temporary_team_dissolutions: Records of temporary team lifecycle
+- organisational_dedup_registry: Duplicate prevention
+
+**Core Engine Functions (29 functions):**
+- Structure definition/versioning
+- Role management
+- Team formation and member assignment
+- Structure candidate generation from evidence
+- Evidence-based structure selection
+- Execution plan generation
+- Handoff recording
+- Organisational evidence collection
+- Organisational decision recording
+- Member replacement for unavailability
+- Temporary team dissolution
+- Historical state reconstruction
+- Deduplication
+- All Section 2-18 integration hooks
+
+**API Endpoints (21 endpoints):**
+- Structure CRUD and versioning
+- Role management
+- Team creation and member assignment
+- Candidate generation and structure selection
+- Execution plan creation
+- Handoff recording
+- Evidence and decision recording
+- Member replacement
+- Team dissolution
+- Historical state queries
+
+**Core Behavior:**
+- Real organisational structure definitions from evidence
+- Provider-agnostic role definitions (not hard-coded to AI providers)
+- Teams formed from validated node definitions (Section 18)
+- Evidence from actual work execution (Section 15)
+- Structure selection via evidence-based deterministic rules
+- Handoffs recorded between roles with artifact provenance
+- Organisational decisions immutable with complete rationale
+- Member unavailability triggers replacement (not failure)
+- Temporary teams dissolve, preserving all evidence
+- Historical reconstruction enables "what structure at time T"
+- Full integration with Sections 2-18 learning chain
+- No autonomous self-modification of authority rules
+- Authority boundaries explicit and enforced
+- Team size and hierarchy limits configurable
+
 ### Next Section
 
-**SECTION 19 — Self-Organisation**
+**SECTION 20 — Governance & Safety Controls (DESIGN PHASE, NOT YET STARTED)**
 
-Design phase for autonomous organisational structure evolution: team formation, dynamic hierarchy, topology changes, resource allocation, without central planning authority.
+Implement explicit governance layer for controlled AI system evolution: authority delegation, resource allocation bounds, safety rule enforcement, conflict resolution, and verified enforcement of constraints without self-modification.
 
 
 
