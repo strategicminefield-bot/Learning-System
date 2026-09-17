@@ -27,23 +27,27 @@ class AdaptiveOrchestrationEngine:
         context: Dict[str, Any],
         node_id: Optional[UUID] = None,
         explicit_constraints: Optional[Dict] = None,
-        force_replan_from: Optional[UUID] = None
+        force_replan_from: Optional[UUID] = None,
+        approval_request_id: Optional[str] = None,
+        actor_type: str = 'system',
+        actor_reference: str = 'orchestration_engine'
     ) -> Dict[str, Any]:
         """
-        Main orchestration entry point.
+        Main orchestration entry point with governance enforcement.
         
         Steps:
-        1. Load task and context
-        2. Check idempotency
-        3. Retrieve relevant learning/evidence
-        4. Generate strategy candidates
-        5. Generate worker candidates
-        6. Evaluate candidates using deterministic rules
-        7. Select best strategy and worker
-        8. Generate execution plan
-        9. Create orchestration decision record
-        10. Create assignment if worker selected
-        11. Return orchestration result
+        1. GOVERNANCE: Evaluate orchestration_decision protected action
+        2. Load task and context
+        3. Check idempotency
+        4. Retrieve relevant learning/evidence
+        5. Generate strategy candidates
+        6. Generate worker candidates
+        7. Evaluate candidates using deterministic rules
+        8. Select best strategy and worker
+        9. Generate execution plan
+        10. Create orchestration decision record
+        11. Create assignment if worker selected
+        12. Return orchestration result
         
         Returns: {
             decision_id, 
@@ -53,10 +57,49 @@ class AdaptiveOrchestrationEngine:
             confidence, 
             rationale,
             assignment_id (if applicable),
-            candidates_considered
+            candidates_considered,
+            governance_decision (if governance was required)
         }
         """
         try:
+            # PRE-EXECUTION GOVERNANCE CHECK
+            from governance_enforcement import enforce_protected_action
+            
+            governance_check = enforce_protected_action(
+                self.conn,
+                protected_action_code='orchestration_decision',
+                actor_type=actor_type,
+                actor_reference=actor_reference,
+                resource_type='task',
+                resource_id=str(task_id),
+                scope_context=explicit_constraints,
+                approval_request_id=approval_request_id
+            )
+            
+            if not governance_check['permitted']:
+                # Governance denied the action
+                return {
+                    'decision_id': governance_check.get('decision_id'),
+                    'strategy_selected': None,
+                    'worker_selected': None,
+                    'execution_plan': None,
+                    'confidence': 0.0,
+                    'evidence_sufficiency': 'governance_denied',
+                    'rationale': {'governance_denial': governance_check['reason']},
+                    'assignment_id': None,
+                    'plan_id': None,
+                    'candidates_considered': {},
+                    'governance_decision': governance_check
+                }
+            
+            # Governance permitted - continue with orchestration
+            # Apply constraints if ALLOW_WITH_CONSTRAINTS
+            if governance_check['effect'] == 'ALLOW_WITH_CONSTRAINTS' and governance_check['constraints']:
+                if explicit_constraints:
+                    explicit_constraints.update(governance_check['constraints'])
+                else:
+                    explicit_constraints = governance_check['constraints']
+            
             # 1. Load and validate task
             self.cursor.execute(
                 "SELECT task_id, task_type, specification, status FROM tasks WHERE task_id = %s",

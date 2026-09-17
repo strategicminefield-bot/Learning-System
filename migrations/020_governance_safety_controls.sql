@@ -80,6 +80,7 @@ CREATE INDEX idx_protected_actions_risk ON protected_actions(risk_level);
 INSERT INTO protected_actions (action_code, name, description, risk_level, default_effect) VALUES
   ('task_execution', 'Task Execution', 'Execute a task', 'medium', 'ALLOW'),
   ('strategy_application', 'Strategy Application', 'Apply a strategy to a task', 'medium', 'ALLOW'),
+  ('orchestration_decision', 'Orchestration Decision', 'Make adaptive orchestration decision', 'high', 'ALLOW'),
   ('experiment_creation', 'Experiment Creation', 'Create a controlled experiment', 'high', 'REQUIRE_APPROVAL'),
   ('learning_promotion', 'Learning Promotion', 'Promote validated learning to active use', 'high', 'REQUIRE_APPROVAL'),
   ('node_definition_change', 'Node Definition Change', 'Modify node definition', 'critical', 'REQUIRE_APPROVAL'),

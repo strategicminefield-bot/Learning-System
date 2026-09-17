@@ -356,7 +356,7 @@ def get_recent_audit_events(limit: int = 100):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post('/verify-approval')
+@router.get('/verify-approval')
 def verify_approval_status(approval_request_id: str):
     """Verify that an approval is still valid."""
     try:
