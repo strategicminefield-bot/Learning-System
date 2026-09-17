@@ -1124,3 +1124,386 @@ def workers_metrics_summary():
         "workers_by_status": status_counts,
         "aggregate_metrics": aggregate
     }
+
+
+# Task Messaging and Communication Endpoints (Section 5)
+
+class MessageIn(BaseModel):
+    recipient_node_id: str | None = None
+    task_id: str | None = None
+    assignment_id: str | None = None
+    message_type: str
+    subject: str | None = None
+    content: dict = Field(default_factory=dict)
+    priority: int = 0
+    expires_in_seconds: int | None = None
+
+class SubscriptionIn(BaseModel):
+    topic: str
+    filter_criteria: dict | None = None
+
+@router.post("/messages")
+def send_message(sender_node_id: str, payload: MessageIn):
+    """Send a message from one worker to another or broadcast to task."""
+    sender_uuid = as_uuid(sender_node_id, "sender_node_id")
+    recipient_uuid = as_uuid(payload.recipient_node_id, "recipient_node_id") if payload.recipient_node_id else None
+    task_uuid = as_uuid(payload.task_id, "task_id") if payload.task_id else None
+    assignment_uuid = as_uuid(payload.assignment_id, "assignment_id") if payload.assignment_id else None
+    
+    if not (recipient_uuid or task_uuid or assignment_uuid):
+        raise HTTPException(status_code=400, detail="Must specify recipient, task, or assignment")
+    
+    message_id = uuid.uuid4()
+    expires_at = None
+    if payload.expires_in_seconds:
+        expires_at = datetime.utcnow() + timedelta(seconds=payload.expires_in_seconds)
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Verify sender exists
+            cur.execute("SELECT node_id FROM nodes WHERE node_id=%s", (sender_uuid,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Sender node not found")
+            
+            # Verify recipient if specified
+            if recipient_uuid:
+                cur.execute("SELECT node_id FROM nodes WHERE node_id=%s", (recipient_uuid,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="Recipient node not found")
+            
+            # Insert message
+            cur.execute(
+                """
+                INSERT INTO messages
+                (message_id, sender_node_id, recipient_node_id, task_id, assignment_id,
+                 message_type, subject, content, priority, status, expires_at, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, now())
+                """,
+                (
+                    message_id, sender_uuid, recipient_uuid, task_uuid, assignment_uuid,
+                    payload.message_type, payload.subject,
+                    Jsonb(payload.content), payload.priority, expires_at
+                )
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "sent",
+        "message_id": str(message_id),
+        "sender_node_id": str(sender_uuid),
+        "recipient_node_id": str(recipient_uuid) if recipient_uuid else None,
+        "task_id": str(task_uuid) if task_uuid else None
+    }
+
+@router.get("/messages/{node_id}")
+def get_messages(node_id: str, status: str | None = Query(None), limit: int = Query(100, ge=1, le=1000)):
+    """Get messages for a worker."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Verify node exists
+            cur.execute("SELECT node_id FROM nodes WHERE node_id=%s", (node_uuid,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Node not found")
+            
+            # Get messages
+            if status:
+                cur.execute(
+                    """
+                    SELECT message_id, sender_node_id, message_type, subject, content,
+                           priority, status, read_at, created_at
+                    FROM messages
+                    WHERE recipient_node_id=%s AND status=%s
+                    ORDER BY priority DESC, created_at DESC
+                    LIMIT %s
+                    """,
+                    (node_uuid, status, limit)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT message_id, sender_node_id, message_type, subject, content,
+                           priority, status, read_at, created_at
+                    FROM messages
+                    WHERE recipient_node_id=%s
+                    ORDER BY priority DESC, created_at DESC
+                    LIMIT %s
+                    """,
+                    (node_uuid, limit)
+                )
+            
+            messages = []
+            for row in cur.fetchall():
+                msg_id, sender, msg_type, subject, content, priority, msg_status, read_at, created_at = row
+                messages.append({
+                    "message_id": str(msg_id),
+                    "sender_node_id": str(sender),
+                    "message_type": msg_type,
+                    "subject": subject,
+                    "content": dict(content) if content else {},
+                    "priority": priority,
+                    "status": msg_status,
+                    "read_at": read_at.isoformat() if read_at else None,
+                    "created_at": created_at.isoformat()
+                })
+    
+    return {
+        "messages": messages,
+        "total": len(messages),
+        "node_id": str(node_uuid),
+        "status_filter": status
+    }
+
+@router.post("/messages/{message_id}/read")
+def mark_message_read(message_id: str):
+    """Mark a message as read."""
+    message_uuid = as_uuid(message_id, "message_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE messages SET read_at=now(), status='read' WHERE message_id=%s RETURNING message_id",
+                (message_uuid,)
+            )
+            result = cur.fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="Message not found")
+        
+        conn.commit()
+    
+    return {"status": "read", "message_id": str(message_uuid)}
+
+@router.post("/subscriptions")
+def subscribe_to_topic(node_id: str, payload: SubscriptionIn):
+    """Subscribe a worker to a topic for notifications."""
+    node_uuid = as_uuid(node_id, "node_id")
+    subscription_id = uuid.uuid4()
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Verify node exists
+            cur.execute("SELECT node_id FROM nodes WHERE node_id=%s", (node_uuid,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Node not found")
+            
+            # Create or update subscription
+            cur.execute(
+                """
+                INSERT INTO message_subscriptions
+                (subscription_id, node_id, topic, filter_criteria, active, created_at)
+                VALUES (%s, %s, %s, %s, TRUE, now())
+                ON CONFLICT (node_id, topic) DO UPDATE SET active=TRUE, subscription_id=EXCLUDED.subscription_id
+                RETURNING subscription_id
+                """,
+                (subscription_id, node_uuid, payload.topic, Jsonb(payload.filter_criteria) if payload.filter_criteria else None)
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "subscribed",
+        "node_id": str(node_uuid),
+        "topic": payload.topic
+    }
+
+@router.get("/subscriptions/{node_id}")
+def get_subscriptions(node_id: str):
+    """Get all active subscriptions for a worker."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT subscription_id, topic, filter_criteria, created_at
+                FROM message_subscriptions
+                WHERE node_id=%s AND active=TRUE
+                ORDER BY created_at
+                """,
+                (node_uuid,)
+            )
+            
+            subscriptions = []
+            for row in cur.fetchall():
+                sub_id, topic, filters, created_at = row
+                subscriptions.append({
+                    "subscription_id": str(sub_id),
+                    "topic": topic,
+                    "filter_criteria": dict(filters) if filters else None,
+                    "created_at": created_at.isoformat()
+                })
+    
+    return {
+        "subscriptions": subscriptions,
+        "total": len(subscriptions),
+        "node_id": str(node_uuid)
+    }
+
+@router.get("/tasks/{task_id}")
+def get_task_details(task_id: str):
+    """Get task details with status and related information."""
+    task_uuid = as_uuid(task_id, "task_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT task_id, workflow_id, task_type, status, specification,
+                       priority, created_at, started_at, completed_at
+                FROM tasks
+                WHERE task_id=%s
+                """,
+                (task_uuid,)
+            )
+            task_row = cur.fetchone()
+            
+            if not task_row:
+                raise HTTPException(status_code=404, detail="Task not found")
+            
+            task_id_ret, workflow_id, task_type, status, spec, priority, created_at, started_at, completed_at = task_row
+            
+            # Get assignments
+            cur.execute(
+                """
+                SELECT assignment_id, node_id, status, attempt_count, created_at, claimed_at, completed_at
+                FROM assignments
+                WHERE task_id=%s
+                ORDER BY created_at
+                """,
+                (task_uuid,)
+            )
+            
+            assignments = []
+            for row in cur.fetchall():
+                assign_id, node_id, assign_status, attempt_count, assign_created, claimed, assign_completed = row
+                assignments.append({
+                    "assignment_id": str(assign_id),
+                    "node_id": str(node_id),
+                    "status": assign_status,
+                    "attempt_count": attempt_count,
+                    "created_at": assign_created.isoformat(),
+                    "claimed_at": claimed.isoformat() if claimed else None,
+                    "completed_at": assign_completed.isoformat() if assign_completed else None
+                })
+    
+    return {
+        "task_id": str(task_id_ret),
+        "workflow_id": str(workflow_id),
+        "type": task_type,
+        "status": status,
+        "specification": dict(spec) if spec else {},
+        "priority": priority,
+        "created_at": created_at.isoformat(),
+        "started_at": started_at.isoformat() if started_at else None,
+        "completed_at": completed_at.isoformat() if completed_at else None,
+        "assignments": assignments
+    }
+
+@router.post("/tasks/{task_id}/notify")
+def notify_task_change(task_id: str, node_id: str | None = Query(None)):
+    """Create notifications for task state changes."""
+    task_uuid = as_uuid(task_id, "task_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Get task info
+            cur.execute(
+                "SELECT task_id, status FROM tasks WHERE task_id=%s",
+                (task_uuid,)
+            )
+            task = cur.fetchone()
+            
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found")
+            
+            task_status = task[1]
+            
+            # Get subscribed workers
+            cur.execute(
+                "SELECT DISTINCT node_id FROM message_subscriptions WHERE active=TRUE"
+            )
+            
+            notified = []
+            for row in cur.fetchall():
+                subscriber_node_id = row[0]
+                
+                # Skip if node_id filter applied and doesn't match
+                if node_id and str(subscriber_node_id) != node_id:
+                    continue
+                
+                notification_id = uuid.uuid4()
+                cur.execute(
+                    """
+                    INSERT INTO task_notifications
+                    (notification_id, task_id, node_id, notification_type, detail, created_at)
+                    VALUES (%s, %s, %s, %s, %s, now())
+                    """,
+                    (
+                        notification_id, task_uuid, subscriber_node_id,
+                        f"task_{task_status}",
+                        Jsonb({"task_status": task_status, "updated_at": datetime.utcnow().isoformat()})
+                    )
+                )
+                notified.append(str(subscriber_node_id))
+        
+        conn.commit()
+    
+    return {
+        "status": "notified",
+        "task_id": str(task_uuid),
+        "nodes_notified": notified,
+        "total_notified": len(notified)
+    }
+
+@router.get("/tasks/{task_id}/notifications")
+def get_task_notifications(task_id: str, node_id: str | None = Query(None), limit: int = Query(100, ge=1, le=1000)):
+    """Get notifications for a task."""
+    task_uuid = as_uuid(task_id, "task_id")
+    node_uuid = as_uuid(node_id, "node_id") if node_id else None
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            if node_uuid:
+                cur.execute(
+                    """
+                    SELECT notification_id, node_id, notification_type, detail, read_at, created_at
+                    FROM task_notifications
+                    WHERE task_id=%s AND node_id=%s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (task_uuid, node_uuid, limit)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT notification_id, node_id, notification_type, detail, read_at, created_at
+                    FROM task_notifications
+                    WHERE task_id=%s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (task_uuid, limit)
+                )
+            
+            notifications = []
+            for row in cur.fetchall():
+                notif_id, notif_node_id, notif_type, detail, read_at, created_at = row
+                notifications.append({
+                    "notification_id": str(notif_id),
+                    "node_id": str(notif_node_id),
+                    "type": notif_type,
+                    "detail": dict(detail) if detail else {},
+                    "read_at": read_at.isoformat() if read_at else None,
+                    "created_at": created_at.isoformat()
+                })
+    
+    return {
+        "notifications": notifications,
+        "total": len(notifications),
+        "task_id": str(task_uuid),
+        "node_filter": str(node_uuid) if node_uuid else None
+    }

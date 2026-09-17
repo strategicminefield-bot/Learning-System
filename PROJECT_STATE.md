@@ -78,20 +78,20 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 4 — Worker Status and Health Tracking API
+SECTION 5 — Task Messaging and Inter-Worker Communication API
 
 Objective:
 
-Implement comprehensive worker status management, health tracking, and capability registry for managing distributed AI workers/nodes.
+Implement inter-worker communication and task messaging system for coordinated distributed workflows.
 
 Required capabilities:
 
-- Worker status lifecycle management
-- Heartbeat and availability tracking
-- Performance metrics collection
-- Worker capability registry
-- Health status history
-- Metrics aggregation and summary
+- Direct worker-to-worker messaging
+- Task-scoped messaging and broadcast
+- Topic-based subscription system
+- Task notification delivery
+- Message status tracking
+- Task detail queries and history
 
 ---
 
@@ -506,7 +506,142 @@ The test assignment/task/node are currently part of the live test state.
 
 ---
 
-## Section 4 Completed
+## Section 5 Completed
+
+### Task Messaging System
+
+Migration: `migrations/005_messages.sql`
+
+New tables:
+
+#### messages
+Inter-worker communication:
+- `message_id`: UUID primary key
+- `sender_node_id`: Sending worker UUID
+- `recipient_node_id`: Receiving worker UUID (optional for broadcast)
+- `task_id`: Associated task UUID (optional)
+- `assignment_id`: Associated assignment UUID (optional)
+- `message_type`: Type (task_update, progress, error, etc.)
+- `subject`: Message subject
+- `content`: JSONB message payload
+- `priority`: Integer priority (0=normal, higher=urgent)
+- `status`: pending, read, archived
+- `read_at`: Read timestamp
+- `expires_at`: Expiration timestamp
+- `created_at`: Creation timestamp
+
+#### message_subscriptions
+Topic-based subscriptions:
+- `subscription_id`: UUID primary key
+- `node_id`: Subscriber worker UUID
+- `topic`: Topic name (task_updates, notifications, etc.)
+- `filter_criteria`: JSONB filter conditions
+- `active`: Boolean subscription status
+- `created_at`: Creation timestamp
+
+Unique constraint on (node_id, topic)
+
+#### task_notifications
+Task state change notifications:
+- `notification_id`: UUID primary key
+- `task_id`: Task UUID
+- `node_id`: Recipient worker UUID
+- `notification_type`: Type (task_pending, task_running, task_completed, etc.)
+- `detail`: JSONB notification details
+- `read_at`: Read timestamp
+- `created_at`: Creation timestamp
+
+### Messaging Endpoints
+
+#### POST /messages
+Send message from one worker to another or to task.
+
+Payload:
+```json
+{
+  "sender_node_id": "uuid",
+  "recipient_node_id": "uuid (optional)",
+  "task_id": "uuid (optional)",
+  "assignment_id": "uuid (optional)",
+  "message_type": "task_update|progress|error|...",
+  "subject": "optional subject",
+  "content": {"...message data..."},
+  "priority": 0,
+  "expires_in_seconds": 86400
+}
+```
+
+#### GET /messages/{node_id}
+Get messages for a worker.
+
+Query: `status` (optional), `limit` (1-1000, default 100)
+
+Returns: Array of messages with sender, type, subject, content, priority, status, timestamps
+
+#### POST /messages/{message_id}/read
+Mark message as read.
+
+#### POST /subscriptions
+Subscribe worker to topic.
+
+Payload:
+```json
+{
+  "node_id": "uuid",
+  "topic": "task_updates",
+  "filter_criteria": {"task_type": "..."}
+}
+```
+
+#### GET /subscriptions/{node_id}
+Get active subscriptions for worker.
+
+Returns: Array of subscriptions with topic, filter_criteria, created_at
+
+#### GET /tasks/{task_id}
+Get task details with assignments and status.
+
+Returns: Task info, specification, assignments array with status and attempt counts
+
+#### POST /tasks/{task_id}/notify
+Broadcast notification for task state change.
+
+Query: `node_id` (optional filter)
+
+Returns: Notification count and recipient list
+
+#### GET /tasks/{task_id}/notifications
+Get notifications for task.
+
+Query: `node_id` (optional filter), `limit` (1-1000, default 100)
+
+Returns: Array of notifications with type, detail, read status, timestamps
+
+### Messaging Features
+
+- **Direct messaging**: Send messages between specific workers
+- **Task scoping**: Associate messages with tasks and assignments
+- **Priority handling**: Messages can have priority levels
+- **Expiration**: Messages can have TTL with automatic expiry
+- **Subscriptions**: Workers subscribe to topics for notifications
+- **Task tracking**: Query task status and all related assignments
+- **Notifications**: Automatic delivery when task state changes
+- **Status tracking**: Messages can be marked read/archived
+
+### Tests
+
+Test script: `tests/test_section5_messaging.py`
+
+Verifies:
+✓ Message sending between workers
+✓ Message retrieval and filtering
+✓ Message status updates
+✓ Topic subscriptions
+✓ Task detail queries
+✓ Task notifications and broadcasts
+✓ Complete messaging workflow with lifecycle
+
+## Section 4 Completed (Previous)
 
 ### Worker Status Management
 
