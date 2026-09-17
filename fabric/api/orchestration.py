@@ -1512,7 +1512,7 @@ def get_task_notifications(task_id: str, node_id: str | None = Query(None), limi
 # Learning and Pattern Analysis Endpoints (Section 6)
 
 @router.post("/outcomes/{task_id}")
-def record_task_outcome(task_id: str, node_id: str, payload: dict = {}):
+def record_task_outcome(task_id: str, payload: dict, node_id: str = Query(...)):
     """Record task outcome for learning analysis."""
     task_uuid = as_uuid(task_id, "task_id")
     node_uuid = as_uuid(node_id, "node_id")

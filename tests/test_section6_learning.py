@@ -102,7 +102,7 @@ def test_record_outcome(data):
     task_id = data["task_ids"][0]
     node_id = data["node_id"]
     
-    resp = api_request("POST", f"/outcomes/{task_id}", {
+    resp = api_request("POST", f"/outcomes/{task_id}?node_id={node_id}", {
         "status": "success",
         "quality_score": 0.95,
         "execution_time_seconds": 30,
@@ -129,7 +129,7 @@ def test_learning_profile(data):
     # Record multiple outcomes to build profile
     for i, task_id in enumerate(data["task_ids"][:2]):
         quality = 0.85 + (i * 0.05)
-        api_request("POST", f"/outcomes/{task_id}",
+        api_request("POST", f"/outcomes/{task_id}?node_id={data['node_id']}",
             {
                 "status": "success",
                 "quality_score": quality,
@@ -267,7 +267,7 @@ def test_learning_workflow(data):
         }, None)
         
         # Record outcome
-        outcome_resp = api_request("POST", f"/outcomes/{task_id_str}",
+        outcome_resp = api_request("POST", f"/outcomes/{task_id_str}?node_id={worker_node_id_str}",
             {
                 "status": "success",
                 "quality_score": 0.92,
