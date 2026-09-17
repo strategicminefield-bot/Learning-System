@@ -1,6 +1,8 @@
 -- Section 15: Adaptive Orchestration
 -- Implements evidence-based orchestration decision-making that influences actual task execution
 
+BEGIN;
+
 -- Orchestration decision records
 CREATE TABLE orchestration_decisions (
     decision_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
