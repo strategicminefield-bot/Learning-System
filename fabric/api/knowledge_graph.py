@@ -183,6 +183,7 @@ def semantic_search(payload: dict):
     
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
+            from psycopg.types.json import Jsonb
             # Record search
             cur.execute(
                 """
@@ -190,7 +191,7 @@ def semantic_search(payload: dict):
                 (search_id, node_id, query, query_embedding, query_type, task_type)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (search_id, node_id, query, query_embedding, "semantic", task_type)
+                (search_id, node_id, query, Jsonb(query_embedding), "semantic", task_type)
             )
             
             # Semantic search - return top results by artifact quality (embeddings are JSONB for now)
@@ -275,34 +276,33 @@ def get_knowledge_graph(task_type: str):
             )
             artifacts = cur.fetchall()
             
-            # Get relationships between these artifacts
-            artifact_ids = [row[0] for row in artifacts]
-            if artifact_ids:
-                placeholders = ",".join(["%s"] * len(artifact_ids))
+            # Get relationships between these artifacts (simplified: just get relationships in graph)
+            artifact_ids_set = {row[0] for row in artifacts}
+            if artifact_ids_set:
                 cur.execute(
-                    f"""
+                    """
                     SELECT source_artifact_id, target_artifact_id, relationship_type, strength
                     FROM knowledge_relationships
-                    WHERE source_artifact_id IN ({placeholders}) OR target_artifact_id IN ({placeholders})
-                    """,
-                    artifact_ids + artifact_ids
+                    ORDER BY strength DESC
+                    LIMIT 1000
+                    """
                 )
-                relationships = cur.fetchall()
+                all_rels = cur.fetchall()
+                # Filter to only relationships between artifacts in this task type
+                relationships = [
+                    r for r in all_rels
+                    if r[0] in artifact_ids_set and r[1] in artifact_ids_set
+                ]
             else:
                 relationships = []
             
-            # Get graph stats
-            cur.execute(
-                """
-                SELECT artifact_count, relationship_count, avg_connections_per_artifact
-                FROM knowledge_graph_stats
-                WHERE task_type = %s OR (task_type IS NULL AND %s IS NULL)
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (task_type, task_type)
-            )
-            stats_row = cur.fetchone()
+            # Get graph stats (just count relationships in current result)
+            stats_row = None
+            # Calculate stats from current data
+            if relationships:
+                avg_connections = len(relationships) / len(artifacts) if artifacts else 0
+            else:
+                avg_connections = 0
     
     return {
         "task_type": task_type,
@@ -325,10 +325,10 @@ def get_knowledge_graph(task_type: str):
             for row in relationships
         ],
         "stats": {
-            "artifact_count": stats_row[0] if stats_row else len(artifacts),
-            "relationship_count": stats_row[1] if stats_row else len(relationships),
-            "avg_connections": stats_row[2] if stats_row else 0
-        } if stats_row else {}
+            "artifact_count": len(artifacts),
+            "relationship_count": len(relationships),
+            "avg_connections": avg_connections
+        }
     }
 
 

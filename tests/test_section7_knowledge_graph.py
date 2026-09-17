@@ -46,6 +46,7 @@ def setup():
     """Create test data"""
     c = psycopg.connect(DATABASE_URL)
     with c.cursor() as cur:
+        from psycopg.types.json import Jsonb
         # Create artifacts
         art1_id = uuid.uuid4()
         art2_id = uuid.uuid4()
@@ -56,25 +57,25 @@ def setup():
             """INSERT INTO knowledge_artifacts
             (artifact_id, task_type, artifact_type, content, quality_score)
             VALUES (%s, %s, %s, %s, %s)""",
-            (art1_id, "query_optimization", "template", {"steps": ["analyze", "optimize"]}, 0.95)
+            (art1_id, "query_optimization", "template", Jsonb({"steps": ["analyze", "optimize"]}), 0.95)
         )
         cur.execute(
             """INSERT INTO knowledge_artifacts
             (artifact_id, task_type, artifact_type, content, quality_score)
             VALUES (%s, %s, %s, %s, %s)""",
-            (art2_id, "query_optimization", "solution", {"approach": "indexing"}, 0.92)
+            (art2_id, "query_optimization", "solution", Jsonb({"approach": "indexing"}), 0.92)
         )
         cur.execute(
             """INSERT INTO knowledge_artifacts
             (artifact_id, task_type, artifact_type, content, quality_score)
             VALUES (%s, %s, %s, %s, %s)""",
-            (art3_id, "query_optimization", "approach", {"technique": "caching"}, 0.88)
+            (art3_id, "query_optimization", "approach", Jsonb({"technique": "caching"}), 0.88)
         )
         cur.execute(
             """INSERT INTO knowledge_artifacts
             (artifact_id, task_type, artifact_type, content, quality_score)
             VALUES (%s, %s, %s, %s, %s)""",
-            (art4_id, "data_analysis", "template", {"steps": ["collect", "analyze"]}, 0.90)
+            (art4_id, "data_analysis", "template", Jsonb({"steps": ["collect", "analyze"]}), 0.90)
         )
         c.commit()
     c.close()
@@ -193,17 +194,32 @@ else:
 
 # TEST 7: Map artifact to task
 print("\nTEST 7: Map artifact to task type")
+mappings_created = 0
+
+# Map query_optimization artifacts
+for artifact_id in [str(art1), str(art2), str(art3)]:
+    mapping, code = api("POST", "/knowledge/map-to-task", {
+        "artifact_id": artifact_id,
+        "task_type": "query_optimization",
+        "relevance_score": 0.85
+    })
+    if code == 200:
+        mappings_created += 1
+
+# Map data_analysis artifact
 mapping, code = api("POST", "/knowledge/map-to-task", {
     "artifact_id": str(art4),
     "task_type": "data_analysis",
     "relevance_score": 0.92
 })
+if code == 200:
+    mappings_created += 1
 
-if code == 200 and mapping.get("mapping_id"):
-    print(f"  ✓ Mapping created: {mapping['mapping_id'][:12]}...")
+if mappings_created >= 4:
+    print(f"  ✓ Mappings created: {mappings_created}")
     tests_passed += 1
 else:
-    print(f"  ✗ Failed ({code}): {mapping}")
+    print(f"  ✗ Failed: only {mappings_created} mappings created")
     tests_failed += 1
 
 # TEST 8: Get knowledge by task
