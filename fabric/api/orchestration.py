@@ -11,11 +11,11 @@ router = APIRouter()
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 def record_event(conn, event_type, entity_type, entity_id, node_id=None, previous_state=None, current_state=None, metadata=None):
-    """Record an event to the events table. Call within an active transaction."""
+    """Record an event to the audit_events table. Call within an active transaction."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO events
+            INSERT INTO audit_events
             (event_type, entity_type, entity_id, node_id, previous_state, current_state, metadata, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, now())
             RETURNING event_id
@@ -693,7 +693,7 @@ def list_events(
                 f"""
                 SELECT event_id, event_type, entity_type, entity_id, node_id,
                        previous_state, current_state, metadata, created_at
-                FROM events
+                FROM audit_events
                 WHERE {where_clause}
                 ORDER BY created_at DESC
                 LIMIT %s OFFSET %s
@@ -730,7 +730,7 @@ def get_event(event_id: str):
                 """
                 SELECT event_id, event_type, entity_type, entity_id, node_id,
                        previous_state, current_state, metadata, created_at
-                FROM events
+                FROM audit_events
                 WHERE event_id = %s
                 """,
                 (event_uuid,)
@@ -766,7 +766,7 @@ def audit_trail(entity_type: str, entity_id: str, limit: int = Query(100, ge=1, 
                 """
                 SELECT event_id, event_type, entity_type, entity_id, node_id,
                        previous_state, current_state, metadata, created_at
-                FROM events
+                FROM audit_events
                 WHERE entity_type = %s AND entity_id = %s
                 ORDER BY created_at ASC
                 LIMIT %s

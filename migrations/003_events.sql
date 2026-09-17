@@ -1,7 +1,7 @@
 BEGIN;
 
--- Events table for audit trail and history
-CREATE TABLE IF NOT EXISTS events (
+-- Audit events table for lifecycle tracking and history
+CREATE TABLE IF NOT EXISTS audit_events (
     event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type TEXT NOT NULL,
     entity_type TEXT NOT NULL,
@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 -- Indexes for efficient querying
-CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
-CREATE INDEX IF NOT EXISTS idx_events_node ON events(node_id);
-CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_events_entity_time ON events(entity_type, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON audit_events(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_events_type ON audit_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_events_node ON audit_events(node_id);
+CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_entity_time ON audit_events(entity_type, entity_id, created_at DESC);
 
 COMMIT;

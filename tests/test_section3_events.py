@@ -190,7 +190,7 @@ def test_events_recorded(data):
         with conn.cursor() as cur:
             # Count events for assignment
             cur.execute(
-                "SELECT COUNT(*) FROM events WHERE entity_type='assignment' AND entity_id=%s",
+                "SELECT COUNT(*) FROM audit_events WHERE entity_type='assignment' AND entity_id=%s",
                 (data["assignment_id"],)
             )
             assignment_events = cur.fetchone()[0]
@@ -201,7 +201,7 @@ def test_events_recorded(data):
             cur.execute(
                 """
                 SELECT COUNT(e.event_id)
-                FROM events e
+                FROM audit_events e
                 JOIN attempts a ON e.entity_id = a.attempt_id
                 WHERE e.entity_type='attempt' AND a.assignment_id=%s
                 """,
@@ -213,7 +213,7 @@ def test_events_recorded(data):
             
             # Verify event types
             cur.execute(
-                "SELECT DISTINCT event_type FROM events WHERE entity_type='assignment' AND entity_id=%s ORDER BY event_type",
+                "SELECT DISTINCT event_type FROM audit_events WHERE entity_type='assignment' AND entity_id=%s ORDER BY event_type",
                 (data["assignment_id"],)
             )
             event_types = [row[0] for row in cur.fetchall()]
@@ -221,7 +221,7 @@ def test_events_recorded(data):
             
             # Verify previous_state and current_state
             cur.execute(
-                "SELECT COUNT(*) FROM events WHERE entity_type='assignment' AND entity_id=%s AND previous_state IS NOT NULL",
+                "SELECT COUNT(*) FROM audit_events WHERE entity_type='assignment' AND entity_id=%s AND previous_state IS NOT NULL",
                 (data["assignment_id"],)
             )
             state_events = cur.fetchone()[0]
@@ -238,7 +238,7 @@ def test_event_queries(data):
         with conn.cursor() as cur:
             # Test filtering by entity_type
             cur.execute(
-                "SELECT COUNT(*) FROM events WHERE entity_type='assignment'",
+                "SELECT COUNT(*) FROM audit_events WHERE entity_type='assignment'",
             )
             assignment_count = cur.fetchone()[0]
             assert assignment_count > 0, "Should have assignment events"
@@ -246,7 +246,7 @@ def test_event_queries(data):
             
             # Test filtering by entity_id
             cur.execute(
-                "SELECT COUNT(*) FROM events WHERE entity_id=%s",
+                "SELECT COUNT(*) FROM audit_events WHERE entity_id=%s",
                 (data["assignment_id"],)
             )
             entity_count = cur.fetchone()[0]
@@ -255,7 +255,7 @@ def test_event_queries(data):
             
             # Test filtering by event_type
             cur.execute(
-                "SELECT COUNT(*) FROM events WHERE event_type='completed'",
+                "SELECT COUNT(*) FROM audit_events WHERE event_type='completed'",
             )
             completed_count = cur.fetchone()[0]
             print(f"    ✓ Query by event_type: found {completed_count} 'completed' events")
@@ -263,7 +263,7 @@ def test_event_queries(data):
             # Test ordering by created_at
             cur.execute(
                 """
-                SELECT event_id, created_at FROM events 
+                SELECT event_id, created_at FROM audit_events 
                 WHERE entity_type='assignment' AND entity_id=%s
                 ORDER BY created_at ASC
                 """,
@@ -285,7 +285,7 @@ def test_audit_trail(data):
             cur.execute(
                 """
                 SELECT event_id, event_type, previous_state, current_state, metadata, created_at
-                FROM events
+                FROM audit_events
                 WHERE entity_type='assignment' AND entity_id=%s
                 ORDER BY created_at ASC
                 """,
@@ -312,7 +312,7 @@ def test_event_metadata(data):
             # Get event with metadata
             cur.execute(
                 """
-                SELECT event_type, metadata FROM events 
+                SELECT event_type, metadata FROM audit_events 
                 WHERE entity_type='assignment' AND entity_id=%s AND metadata IS NOT NULL
                 LIMIT 1
                 """,
