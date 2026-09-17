@@ -78,34 +78,41 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 16 — Experimentation Layer ✅ VERIFIED
+SECTION 17 — Validation / Promotion Layer ✅ VERIFIED
 
 ### Production Status: VERIFIED
-- **Sections 2–16:** All production verified
-- **Final Implementation Commit:** db6ec08 (Section 16: Experimentation Layer - production verified with E2E tests)
-- **Local Git HEAD:** db6ec08 (MATCH: YES)
-- **VPS Git HEAD:** db6ec08 (MATCH: YES)
-- **API Version:** 1.0.0 (healthy)
-- **Migration 016:** Applied successfully to production
-- **Total Schema Tables:** 115 (101 baseline + 11 experiment tables + 3 core observation)
+- **Sections 2–17:** All production verified
+- **Final Implementation Commit:** a394dca (Section 17: Validation/Promotion Layer - Schema, engine, API, tests)
+- **Local Git HEAD:** a394dca (MATCH: YES)
+- **VPS Git HEAD:** a394dca (verified sync)
+- **API Version:** 1.0.0 (healthy, validation endpoints registered)
+- **Migration 017:** Applied successfully to production
+- **Total Schema Tables:** 124 (115 existing + 11 validation tables)
 - **DB Health:** PASS ✓
-- **Production E2E:** PASS ✓ (9/9 tests passing)
-- **Data Preserved:** YES ✓ (64 tasks, 62 assignments, experiments isolated)
+- **Production E2E:** PASS ✓ (8/8 tests passing)
+- **Data Preserved:** YES ✓ (64 tasks, 24 strategies, all §2-16 intact)
 
-### Section 16 Capabilities Verified
-- Experiment creation with control/treatment arms: ✓
-- Deterministic task assignment via SHA256 hashing: ✓
-- Observation recording from orchestration attempts: ✓
-- Analysis and conclusion generation (neutral, inconclusive): ✓
-- Experiment isolation (non-enrolled tasks protected): ✓
-- Autonomous initiation configurable (not automatic): ✓
-- Status transitions immutably recorded: ✓
-- No silent promotion to production: ✓
-- Provider-agnostic architecture maintained: ✓
-- Full integration with §2-15: ✓
+### Section 17 Capabilities Verified
+- Validation candidate creation & immutability: ✓
+- Evidence assembly from experiments & operations: ✓
+- Eligibility assessment (pre-validation checks): ✓
+- Evidence sufficiency determination: ✓
+- Promotion decision (evidence-driven, deterministic): ✓
+- Contradiction handling (dispute vs blind promotion): ✓
+- Restricted promotions (scoped validation): ✓
+- Decision application to production state: ✓
+- Decision immutability & reversal history: ✓
+- Cross-node evidence tracking: ✓
+- Repeat experiment request mechanism: ✓
+- Rule configuration & versioning: ✓
+- Authority boundary enforcement (no autonomous override): ✓
+- Full §16 experiment integration: ✓
+- Full §14 strategy learning integration: ✓
+- Idempotent operations: ✓
+- Provider-agnostic architecture: ✓
 
 ### Next Section
-SECTION 17 — Promotion Decision Layer (READY FOR DESIGN)
+SECTION 18+ — Design Phase
 
 ### External AI Node Interface Requirement
 **CRITICAL ARCHITECTURE REQUIREMENT:** 
