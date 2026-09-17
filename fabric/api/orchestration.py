@@ -886,7 +886,8 @@ def update_worker_status(node_id: str, payload: WorkerStatusUpdate):
                 INSERT INTO worker_metrics (node_id, last_heartbeat, updated_at)
                 VALUES (%s, now(), now())
                 ON CONFLICT (node_id) DO UPDATE SET last_heartbeat=now(), updated_at=now()
-                """
+                """,
+                (node_uuid,)
             )
         
         conn.commit()
