@@ -16,6 +16,7 @@ import time
 import sys
 import subprocess
 import logging
+import psycopg
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
@@ -23,7 +24,9 @@ from typing import Optional, Dict, Any
 # Configuration
 CONFIG_DIR = Path.home() / ".openclaw"
 CONFIG_FILE = CONFIG_DIR / "executor_config.json"
-DEFAULT_FABRIC_URL = "http://localhost:8000"  # Will connect via OpenClaw gateway
+# Use VPS IP for outbound connectivity from WSL to Fabric
+DEFAULT_FABRIC_URL = "http://95.179.236.41:8000"
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://fabric:fabric@95.179.236.41:5432/learning_fabric")
 HEARTBEAT_INTERVAL = 30  # seconds
 POLL_INTERVAL = 5  # seconds
 
@@ -153,24 +156,31 @@ class FabricClient:
             return False
     
     def poll_assignments(self) -> Optional[Dict[str, Any]]:
-        """Poll for available assignments for this node."""
+        """Poll for available assignments for this node from database."""
         try:
-            # Assignments endpoint is at root level
-            resp = self.session.get(
-                f"{self.root_url}/assignments",
-                params={"node_id": self.node_id, "status": "assigned", "limit": 1},
-                timeout=10
-            )
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                # Handle both list and dict responses
-                if isinstance(data, list) and len(data) > 0:
-                    return data[0]
-                elif isinstance(data, dict) and data.get("assignments"):
-                    assignments = data.get("assignments", [])
-                    if assignments:
-                        return assignments[0]
+            conn = psycopg.connect(DATABASE_URL)
+            try:
+                with conn.cursor() as cur:
+                    # Query for pending assignments to this node
+                    cur.execute(
+                        """SELECT assignment_id, task_id, node_id, status, created_at
+                           FROM assignments
+                           WHERE node_id = %s AND status = 'assigned'
+                           ORDER BY created_at ASC
+                           LIMIT 1""",
+                        (self.node_id,)
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        return {
+                            "assignment_id": str(row[0]),
+                            "task_id": str(row[1]),
+                            "node_id": str(row[2]),
+                            "status": row[3],
+                            "created_at": row[4].isoformat() if row[4] else None
+                        }
+            finally:
+                conn.close()
             return None
         except Exception as e:
             logger.debug(f"Poll error: {e}")
@@ -260,20 +270,13 @@ class OpenClawExecutor:
         try:
             logger.info(f"Executing task: {task.get('task_id')}")
             
-            # Extract task requirements
-            task_type = task.get("type", "analysis")
-            requirements = task.get("requirements", {})
+            # Extract task specification
+            spec = task.get("specification", {})
+            if isinstance(spec, str):
+                spec = json.loads(spec)
             
-            # Create execution input
-            execution_input = json.dumps({
-                "task_id": task.get("task_id"),
-                "task_type": task_type,
-                "requirements": requirements
-            })
-            
-            # Invoke OpenClaw - use actual execution, not simulation
-            # This should call real OpenClaw CLI or API
-            output = OpenClawExecutor._run_openclaw(execution_input)
+            # Invoke actual OpenClaw - This calls the real AI model
+            output = OpenClawExecutor._run_openclaw(task, spec)
             
             return {
                 "status": "completed",
@@ -283,7 +286,7 @@ class OpenClawExecutor:
                 "observations": [
                     {
                         "type": "execution_success",
-                        "content": "Task completed successfully",
+                        "content": "Task completed by real OpenClaw execution",
                         "confidence": 0.95
                     }
                 ]
@@ -298,35 +301,59 @@ class OpenClawExecutor:
             }
     
     @staticmethod
-    def _run_openclaw(task_input: str) -> str:
+    def _run_openclaw(task: Dict[str, Any], spec: Dict[str, Any]) -> str:
         """
-        Run actual OpenClaw execution.
+        Run ACTUAL OpenClaw execution against the real OpenClaw API.
         
-        This is a placeholder that demonstrates integration point.
-        Real implementation would invoke OpenClaw CLI/API.
+        This invokes the actual OpenClaw running on this system.
         """
-        # For testing: return structured result from the task
-        # In production, this would invoke: openclaw task --input <json>
-        
         try:
-            # Parse input to understand task
-            task_data = json.loads(task_input)
-            task_id = task_data.get("task_id")
+            task_id = task.get("task_id")
+            prompt = spec.get("prompt", "Complete the task")
+            test_id = spec.get("test_id", "")
             
-            # Create test execution output
-            # In real scenario, OpenClaw would process the task
-            result = {
-                "task_id": task_id,
-                "result": "Task completed by actual OpenClaw execution",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "execution_evidence": {
-                    "model": "openclaw/executor-1.0",
-                    "reasoning_depth": "full",
-                    "safety_checks_passed": True
-                }
-            }
+            logger.info(f"Invoking REAL OpenClaw for task {task_id}")
             
-            return json.dumps(result, indent=2)
+            # ACTUAL OpenClaw execution via subprocess
+            # This calls the real openclaw command line tool
+            result = subprocess.run(
+                [
+                    "openclaw", "execute", "--model", "default",
+                    "--prompt", prompt,
+                    "--timeout", "30"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=35
+            )
+            
+            if result.returncode == 0:
+                # Parse actual OpenClaw output
+                output = result.stdout.strip()
+                logger.info(f"OpenClaw execution completed successfully")
+                
+                # Return as structured result
+                return json.dumps({
+                    "task_id": task_id,
+                    "test_id": test_id,
+                    "result": output,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "execution_evidence": {
+                        "provider": "openclaw",
+                        "command": "real OpenClaw execution via CLI",
+                        "success": True
+                    }
+                }, indent=2)
+            else:
+                logger.error(f"OpenClaw execution failed: {result.stderr}")
+                raise Exception(f"OpenClaw error: {result.stderr}")
+        
+        except subprocess.TimeoutExpired:
+            logger.error("OpenClaw execution timed out")
+            raise
+        except FileNotFoundError:
+            logger.error("openclaw command not found - is OpenClaw installed?")
+            raise
         except Exception as e:
             logger.error(f"OpenClaw execution failed: {e}")
             raise
@@ -390,6 +417,27 @@ class ExecutorAdapter:
         logger.info(f"Received assignment: {assignment_id} (task: {task_id})")
         
         try:
+            # Fetch full task specification from database
+            conn = psycopg.connect(DATABASE_URL)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT task_id, task_type, specification FROM tasks WHERE task_id = %s",
+                        (task_id,)
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        logger.error(f"Task {task_id} not found")
+                        return
+                    
+                    task = {
+                        "task_id": str(row[0]),
+                        "type": row[1],
+                        "specification": row[2]
+                    }
+            finally:
+                conn.close()
+            
             # Claim assignment
             if not self.client.claim_assignment(assignment_id):
                 logger.warning(f"Failed to claim assignment {assignment_id}")
@@ -401,14 +449,7 @@ class ExecutorAdapter:
                 logger.warning(f"Failed to create attempt for {assignment_id}")
                 return
             
-            # Extract task data
-            task = {
-                "task_id": task_id,
-                "type": assignment.get("task_type", "general"),
-                "requirements": assignment.get("requirements", {})
-            }
-            
-            # Execute with actual OpenClaw
+            # Execute with ACTUAL OpenClaw
             result = OpenClawExecutor.execute_task(task)
             
             # Submit result
