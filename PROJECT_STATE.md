@@ -78,22 +78,25 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 19 — Self-Organisation Layer ✅ PRODUCTION VERIFIED
+SECTION 22 — Production Hardening ✅ PRODUCTION VERIFIED
+
+NEXT SECTION: SECTION 23 — Full Evolutionary Loop
 
 ### Production Status: VERIFIED & CURRENT
-- **Sections 2–19:** All production verified
-- **Current Commit:** 8576a4e (Section 19: Production verification complete - Self-Organisation VERIFIED)
-- **Local Git HEAD:** 8576a4e (VERIFIED)
-- **Remote/GitHub HEAD:** 8576a4e (VERIFIED)
-- **VPS Git HEAD:** 8576a4e (VERIFIED)
+- **Sections 2–22:** All production verified
+- **Current Commit:** 1c14067 (Section 22: Production E2E Verification Complete - All Tests PASS)
+- **Implementation Commit:** 02266ca (Section 22: Production Hardening - Application Layer Only)
+- **Local Git HEAD:** 1c14067 (VERIFIED)
+- **Remote/GitHub HEAD:** 1c14067 (VERIFIED)
+- **VPS Git HEAD:** 1c14067 (VERIFIED)
 - **Git/VPS Match:** YES ✓ (all three at identical commit)
-- **API Version:** 1.0.0 (healthy, verified at deployment)
-- **API Status:** ✓ RUNNING (`/health` returns ok)
-- **Migration 019:** Applied successfully to production VPS PostgreSQL
-- **Total Schema Tables:** 155 (137 existing + 18 self-organisation)
-- **DB Health:** PASS ✓ (155 tables verified, all constraints applied, all indices created)
-- **Baseline Data Preserved:** YES ✓ (64 tasks, 35 assignments, 24 strategies, all §2-18 intact)
-- **Production E2E Tests:** PASS ✓ (15 core tests executed)
+- **API Version:** 1.0.6 (healthy, verified at deployment)
+- **API Status:** ✓ RUNNING (`/health` responds ok)
+- **Migration 022:** Applied successfully to production VPS PostgreSQL (8 hardening tables)
+- **Total Schema Tables:** 192 (184 existing + 8 Section 22)
+- **DB Health:** PASS ✓ (192 tables verified, all constraints applied, all indices created)
+- **Baseline Data Preserved:** YES ✓ (64 tasks, 9 governance decisions, all §2-21 intact)
+- **Production E2E Tests:** PASS ✓ (12 resilience tests executed with actual observed evidence)
 - **Blockers:** NONE
 
 ### Section 19 Capabilities Verified
@@ -251,7 +254,75 @@ Two explicit production E2E tests verified authority boundaries:
 13. Baseline regression PASS
 14. Schema health PASS
 
-### Section 19: Self-Organisation Implementation & Verification
+### Section 22: Production Hardening Implementation & Verification
+
+**Objective:** Harden the complete Learning Fabric for reliable 24/7 production operation as a persistent multi-node learning system.
+
+**Implementation Status: PRODUCTION VERIFIED ✅**
+
+**Application-Level Hardening (hardening_utilities.py):**
+- ConnectionPool: Managed database connection pool with health checking and timeout enforcement
+- ensure_transaction_safety decorator: Automatic rollback on ANY exception (zero partial mutations)
+- with_timeout decorator: Statement-level timeout enforcement (no indefinite blocking)
+- with_bounded_retry decorator: Exponential backoff with smart exclusions (excludes permanent failures, governance denials)
+- OperationContext: Track operations independently for failure isolation
+- Input validation utilities: UUID and enum validation
+- Health check functions: DB and governance health assessment
+
+**Hardening Health Endpoints (hardening_health_endpoints.py):**
+- GET /api/v1/health/alive: Liveness probe (process alive?)
+- GET /api/v1/health/ready: Readiness probe (can accept work?)
+- GET /api/v1/health/status: Comprehensive operational status
+- POST /api/v1/health/record-deployment: Deployment tracking
+- POST /api/v1/health/record-event: Structured event logging
+
+**Migration 022: Production Hardening Tables (8 new tables):**
+- operation_audit_log: Track all significant operations for failure isolation/debugging
+- production_config: Runtime configuration with startup validation
+- health_check_history: Trend detection over time
+- deployment_events: Deployment tracking and rollback capability
+- integrity_findings: Data audit results and anomalies
+- application_event_log: Structured logging with correlation IDs
+- service_status: Readiness state tracking (api, database, governance, evaluation)
+- backup_manifest: Backup metadata and restore test results
+
+**Production E2E Resilience Tests (All Executed):**
+✅ E2E A: Application Service Recovery — Container recovery and data preservation VERIFIED
+✅ E2E B: Database Interruption/Recovery — Connection failure/recovery cycle VERIFIED
+✅ E2E C: Transaction Rollback — Partial mutation prevention VERIFIED
+✅ E2E D: Concurrency — Concurrent queries without corruption VERIFIED
+✅ E2E E: Idempotent Retry — Single logical effect from retries VERIFIED
+✅ E2E F: Governance Fail-Closed — DENY enforcement verified VERIFIED
+✅ E2E G: Failure Isolation — Unrelated operations continue independently VERIFIED
+✅ E2E H: Real Backup/Isolated Restore — 637K backup created, isolated restore successful, production untouched VERIFIED
+✅ E2E I: Deployment/Rollback — Rollback mechanism available, data preserved VERIFIED
+✅ E2E J: Integrity Audit — Zero critical anomalies found VERIFIED
+✅ E2E K: Safe Bounded Load — 10 concurrent queries, system responsive VERIFIED
+✅ E2E L: Restart Durability — Persistent state survived restart VERIFIED
+
+**Regression Sections 2–21:** ✓ ALL OPERATIONAL
+- Section 15 (Orchestration): 1 task present
+- Section 20 (Governance): 13 tables, 9 decisions operational
+- Section 21 (Evaluation): 15 tables operational
+
+**Access Preservation:** ✓ VERIFIED
+- SSH access: WORKING
+- GitHub: ACCESSIBLE
+- VPS deployment: ACCESSIBLE
+- PostgreSQL: RESPONDING
+- API: RUNNING
+- All management paths: FULLY PRESERVED
+- Zero access-affecting changes
+- Zero lockout-risk modifications
+
+**Production Data Preserved:**
+- 64 baseline tasks intact
+- 9 governance decisions intact
+- 192 total tables (all intact)
+- Zero data loss
+- All evidence from Sections 2-21 preserved
+
+**Section 19: Self-Organisation Implementation & Verification
 
 **Schema Deployment:**
 - Migration 019: 20 tables (created with 60+ indices)
@@ -448,6 +519,35 @@ All evidence is contextual, never universal scoring. Contradictions are preserve
 
 ---
 
+## Section 21: System-Level Evaluation — PRODUCTION VERIFIED ✅
+
+(See SECTION21_FINAL_VERIFICATION.md for complete details)
+
+Implemented comprehensive system-level evaluation layer:
+- Evidence-based organizational effectiveness measurement
+- 15 persistent evaluation tables
+- Population-aware comparisons
+- Frozen baselines (immutable reference windows)
+- Evidence sufficiency rules (versioned, deterministic)
+- Regression detection
+- Change-impact evaluation
+- Subsystem health assessment
+- Governance effectiveness evaluation
+- Non-executing recommendations only (advisory layer)
+- All history immutable and retrievable
+- Provider-agnostic evaluation engine
+
+**Key Principle:** Section 21 measures only, does not execute. No authority to promote, demote, govern, evolve, or provision.
+
+**Production Status:** 34 E2E tests PASS, 184 tables intact, 64 baseline tasks preserved.
+
+## Section 22: Production Hardening — PRODUCTION VERIFIED ✅
+
+(See SECTION22_PRODUCTION_E2E_VERIFICATION.md for complete test results)
+
+All 12 required production resilience tests executed with actual observed evidence.
+No simulation. All infrastructure in place for operational use.
+
 ## Section 20 Completed
 
 ### Governance & Safety Controls — PRODUCTION VERIFIED
@@ -607,16 +707,99 @@ Test 7: GOVERNANCE HEALTH ✅
 
 **Next Section**
 
-**SECTION 21 — System-Level Evaluation (DESIGN PHASE, NOT YET STARTED)**
+**SECTION 23 — Full Evolutionary Loop (NOT YET STARTED)**
 
-Implement comprehensive system-level evaluation and verification:
-- End-to-end learning loop validation
-- Cross-section integration verification
-- Performance and correctness metrics
-- Production stability testing
-- Readiness assessment for heterogeneous node integration
+Connect verified components into controlled end-to-end evolutionary cycle:
+
+**Conceptually:**
+real work demand → retrieve organisational knowledge → adaptive orchestration → select strategy/nodes/structure → execute real work → attempts/results/verification → failures/repairs → outcomes → learning feedback → knowledge/strategy evidence → detect uncertainty/opportunity → controlled experiment → validation → promotion/restriction/rejection → node evolution where justified → organisational evolution where justified → system-level evaluation → detect improvement/regression → governed future adaptation → repeat.
+
+**CRITICAL REQUIREMENT:** Section 23 must NOT bypass Sections 16–22.
+
+Particularly:
+- Section 16 controls experimentation
+- Section 17 controls validation/promotion
+- Section 18 controls node evolution
+- Section 19 controls self-organisation
+- Section 20 controls authority/governance
+- Section 21 evaluates system-level effects
+- Section 22 provides operational resilience
+
+**Safety Requirement:** Full Evolutionary Loop MUST NOT gain uncontrolled authority over:
+- SSH / firewall / credentials / VPS accounts
+- GitHub access / deployment credentials
+- Database administrative credentials
+- OpenClaw management / management networking
+- Production infrastructure provisioning
+
+Management Access Invariant remains absolute.
+
+**After Section 23:**
+
+**SECTION 24 — Final System Verification (NOT YET STARTED)**
+
+Complete Learning Fabric core roadmap verification.
+
+After Section 24, integration can include real heterogeneous AI nodes:
+- OpenClaw Executor(s)
+- OpenAI Architect/Verifier
+- Independent verifier nodes
+- Other provider/model nodes
+
+The Fabric mediates tasks, evidence, attempts, failures, repairs, verification, outcomes, learning, validation rather than relying on manual chatbot-to-chatbot conversation.
 
 
+
+---
+
+## PERMANENT ARCHITECTURAL RULE: Management Access Invariant
+
+**THIS IS A PERMANENT RULE.** Not a Section 22-only instruction.
+
+No AI node, automated process, hardening routine, governance process, evolutionary process, self-organisation process or future system component may remove, rotate, restrict, replace or materially alter a known-working administrative access path unless:
+
+1. A replacement path has ALREADY been independently verified and safe
+2. Rollback/recovery exists
+3. The AI node has explicit approval for credential/infrastructure changes
+
+**PERMANENT DO NOT MODIFY (autonomous modifications forbidden):**
+- SSH daemon configuration
+- SSH ports
+- SSH authentication methods
+- SSH authorized keys
+- root SSH access policy
+- VPS administrative users
+- sudo permissions
+- firewall rules affecting management access
+- Vultr/network firewall
+- fail2ban/access-blocking systems
+- GitHub SSH credentials
+- OpenClaw SSH configuration
+- OpenClaw gateway authentication
+- PostgreSQL administrative credentials
+- Database passwords
+- API keys
+- Deployment credentials
+- DNS affecting management
+- Docker networking affecting management
+- credential rotation
+
+**Potential security improvements in these areas may be:**
+- AUDITED
+- ANALYSED
+- RECOMMENDED
+
+but must NOT be autonomously applied when meaningful lockout risk exists.
+
+**NEVER sacrifice recoverability to obtain a hardening/security PASS.**
+
+**Current Verified Management Path (Preserved):**
+- OpenClaw → SSH alias: vultr → VPS
+- VPS: /opt/learning-fabric
+- GitHub: strategicminefield-bot/Learning-System
+- Local: ~/Learning-System
+
+This working access must be preserved through all future sections.
 
 ---
 
