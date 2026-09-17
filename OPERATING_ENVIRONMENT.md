@@ -84,6 +84,7 @@ running API container
 **Canonical Deployment:** Docker Compose (host orchestration)  
 **Deployment Interface:** `/root/learning-fabric/docker-compose.yml`  
 **Application Code Entry:** Mounted volume `/root/learning-fabric/app` → container `/app`  
+**Deployment Procedure:** See "Safe Deployment Sequence" section below (documented; not yet formalized as script)  
 
 **Deployment Containers:**
 - `learning-fabric-postgres:17` - PostgreSQL database (port 127.0.0.1:5432)
@@ -369,6 +370,9 @@ If PROJECT_STATE, Git history, local repository, VPS repository, production data
 - Specific model names or API keys for external services
 
 **These belong in `.env`, `.ssh/config`, or secure vaults, not in repository documentation.**
+
+**Also Not Included:**
+- **Pre-reset Section 23 Git commits:** These are NOT available in the current repository history. The original commits (c9944e0, 189f1a3, c8be571, 638e970, 6813a65, 87bab7f, a4d4af5, 7a3a111) were completely removed from Git during the reset context reconstruction and cannot be recovered from Git. Section 23 implementation was recovered from VPS backup files and production database evidence, then reconstructed into current Git history. See PROJECT_STATE.md for full recovery provenance.
 
 ---
 
