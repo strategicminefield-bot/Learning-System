@@ -316,12 +316,7 @@ def verify_final_state(data):
             assert attempt_count == 1, f"Expected 1 attempt, found {attempt_count}"
             print(f"    ✓ Attempt count: {attempt_count}")
             
-            # Count results
-            cur.execute(
-                "SELECT COUNT(*) FROM results WHERE assignment_id=%s",
-                (data["assignment_id"],)
-            )
-            # Results are linked via attempt, not directly
+            # Count results (linked via attempt)
             cur.execute(
                 """
                 SELECT COUNT(r.result_id)
