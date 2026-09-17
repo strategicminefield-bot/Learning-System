@@ -75,6 +75,12 @@ try:
 except ImportError:
     self_organisation_router = None
 
+# Governance & Safety Controls endpoints (Section 20)
+try:
+    from governance_endpoints import router as governance_router
+except ImportError:
+    governance_router = None
+
 from pydantic import BaseModel
 
 app = FastAPI(title='Learning Fabric API', version='1.0.0')
@@ -104,6 +110,8 @@ if node_evolution_router:
     app.include_router(node_evolution_router)
 if self_organisation_router:
     app.include_router(self_organisation_router)
+if governance_router:
+    app.include_router(governance_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
