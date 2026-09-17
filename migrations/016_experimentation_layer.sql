@@ -127,7 +127,7 @@ CREATE TABLE experiment_observations (
     
     -- Attempts/results
     attempts_count INTEGER NOT NULL DEFAULT 1,
-    attempt_ids UUID[] NOT NULL, -- Array of attempt IDs
+    attempt_ids UUID[] DEFAULT ARRAY[]::UUID[], -- Array of attempt IDs
     final_outcome_status VARCHAR(30), -- success, failure, partial
     
     -- Metrics collected
