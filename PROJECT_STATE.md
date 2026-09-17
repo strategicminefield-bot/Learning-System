@@ -3180,3 +3180,62 @@ docker run -d --name learning-fabric-api --network learning-fabric \
 
 All governance gates enforced. Sections 15-19 protected by pre-execution checks. Audit trail complete. Production verified.
 
+
+---
+
+## Section 21: System-Level Evaluation
+
+✅ **VERIFIED — EVIDENCE-BASED ORGANIZATIONAL EVALUATION**
+
+**Final Commit:** `10399c84`
+
+**Verification Date:** 2026-09-17 16:07 GMT+1
+
+### Core Deliverables
+
+- ✅ Migration 021: 15 persistent evaluation tables
+- ✅ System evaluation engine: Real evidence integration (task_outcomes, results, experiments)
+- ✅ Evidence-sufficiency framework: Deterministic versioned rules
+- ✅ API endpoints: Read-only baseline, retrieval, findings, metrics
+- ✅ No execution authority: Recommendations advisory only
+- ✅ Section 20 preserved: Governance remains active, no bypass
+
+### Evaluation Capabilities
+
+- Task completion rate, verification pass rate, experiment effectiveness
+- Comparative evaluation (baseline vs current, before vs after)
+- Regression detection (material degradation tracking)
+- Trend analysis (improving, stable, degrading)
+- Subsystem evaluation (7 subsystems: learning, orchestration, experimentation, validation, evolution, self-org, governance)
+- Change impact analysis (observing association vs causal claims)
+- Failure attribution (classification without forced attribution)
+
+### Key Guarantees
+
+1. **Measures only:** No independent execution authority
+2. **Population-aware:** Never forces comparison of unrelated work
+3. **Baseline-frozen:** Reference windows persisted, immutable
+4. **Evidence-sufficient:** Deterministic rules; does not fake conclusions
+5. **Causation-careful:** Distinguishes association from evidence
+6. **Finding-evidenced:** Structured findings reference stored metrics
+7. **Recommendation-advisory:** Suggestions, not execution
+8. **Provider-agnostic:** Evaluates fabric evidence, not provider-specific metrics
+9. **Governance-compliant:** Cannot bypass Section 20
+10. **Immutable history:** Data cutoff frozen; historical evaluations unchanged
+
+### Test Results
+
+✅ All 34 production E2E tests PASS
+
+### Production Deployment
+
+- API: learning-fabric-api:1.0.5 running
+- Database: PostgreSQL, 169 tables (154 baseline + 15 Section 21)
+- Migration: 021 applied successfully
+- Data: 64 baseline tasks intact, zero loss
+
+---
+
+## Sections 1-21: Complete and Production Verified
+
+All 21 sections implemented, tested in production, and operationally verified. Learning Fabric is ready for multi-node heterogeneous deployment.
