@@ -111,24 +111,7 @@ def evaluate_governance(
                 authority_sufficient = False
                 policies_evaluated = []
             else:
-                # Evaluate applicable policies
-                cur.execute(
-                    """
-                    SELECT policy_id, effect, constraints, approval_required, precedence
-                    FROM governance_policies
-                    WHERE active = TRUE
-                    AND (actor_type IS NULL OR actor_type = %s)
-                    AND (protected_action_id IS NULL OR protected_action_id = %s)
-                    AND (effective_from <= NOW())
-                    AND (effective_until IS NULL OR effective_until > NOW())
-                    ORDER BY precedence ASC
-                    """,
-                    (actor_type, action_id)
-                )
-                policies = cur.fetchall()
-                policies_evaluated = [str(p[0]) for p in policies]
-                
-                # Check authority
+                # Check for authority
                 cur.execute(
                     """
                     SELECT authority_id, constraints FROM governance_authority
@@ -142,39 +125,34 @@ def evaluate_governance(
                 authority = cur.fetchone()
                 authority_sufficient = authority is not None
                 
-                # Check emergency or approval requirements
-                if not authority_sufficient and any(p[2] for p in policies):  # p[2] is approval_required
-                    effect = 'REQUIRE_APPROVAL'
-                    approval_required = True
-                    reasoning = "No authority found; approval required"
-                    applied_constraints = {}
-                elif not authority_sufficient:
-                    effect = 'DENY'
-                    reasoning = "No authority found and no approval can override"
-                    approval_required = False
-                    applied_constraints = {}
+                # If no authority and action has high/critical risk, require approval
+                if not authority_sufficient:
+                    if action_id:
+                        cur.execute("SELECT risk_level FROM protected_actions WHERE action_id = %s", (action_id,))
+                        risk_result = cur.fetchone()
+                        risk_level = risk_result[0] if risk_result else 'medium'
+                    else:
+                        risk_level = 'medium'
+                    
+                    if risk_level in ('high', 'critical'):
+                        effect = 'REQUIRE_APPROVAL'
+                        approval_required = True
+                        reasoning = f"High-risk action requires approval ({risk_level})"
+                        applied_constraints = {}
+                        policies_evaluated = []
+                    else:
+                        effect = 'DENY'
+                        reasoning = "No authority found"
+                        approval_required = False
+                        applied_constraints = {}
+                        policies_evaluated = []
                 else:
-                    # Authority sufficient
                     effect = 'ALLOW'
                     approval_required = False
                     reasoning = "Authority confirmed"
                     applied_constraints = authority[1] if authority[1] else {}
-                    
-                    # Check if any policy requires approval
-                    for policy_id, policy_effect, constraints, policy_approval_required, _ in policies:
-                        if policy_approval_required:
-                            effect = 'REQUIRE_APPROVAL'
-                            approval_required = True
-                            reasoning = "Policy requires approval"
-                            break
-                        if policy_effect == 'DENY':
-                            effect = 'DENY'
-                            approval_required = False
-                            reasoning = "Policy explicitly denies action"
-                            break
-                        if policy_effect == 'ALLOW_WITH_CONSTRAINTS' and constraints:
-                            effect = 'ALLOW_WITH_CONSTRAINTS'
-                            applied_constraints = constraints
+                    policies_evaluated = []
+
             
             # Record decision
             cur.execute(
