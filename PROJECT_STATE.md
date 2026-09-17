@@ -78,37 +78,42 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 17 — Validation / Promotion Layer ✅ VERIFIED
+SECTION 18 — Node Evolution Layer ✅ VERIFIED
 
 ### Production Status: VERIFIED
-- **Sections 2–17:** All production verified
-- **Final Commit:** a99ce72 (Section 17: Production verification complete)
-- **Local Git HEAD:** a99ce72 (MATCH: YES)
-- **Remote/GitHub HEAD:** a99ce72 (MATCH: YES)
-- **VPS Git HEAD:** a99ce72 (MATCH: YES)
-- **API Version:** 1.0.0 (healthy, validation endpoints registered)
-- **Migration 017:** Applied successfully to production
-- **Total Schema Tables:** 124 (115 existing + 11 validation)
+- **Sections 2–18:** All production verified
+- **Final Commit:** 9164edf (Section 18: Node Evolution Layer - schema, engine, API, tests)
+- **Local Git HEAD:** 9164edf (MATCH: YES)
+- **Remote/GitHub HEAD:** 9164edf (MATCH: YES)
+- **VPS Git HEAD:** 9164edf (MATCH: YES)
+- **API Version:** 1.0.0 (healthy, node evolution endpoints registered)
+- **Migration 018:** Applied successfully to production
+- **Total Schema Tables:** 138 (124 existing + 14 node evolution)
 - **DB Health:** PASS ✓
-- **Production E2E:** PASS ✓ (8/8 tests)
-- **Data Preserved:** YES ✓ (64 tasks, 24 strategies, all §2-16 intact)
+- **Production E2E:** PASS ✓ (12 core tests)
+- **Data Preserved:** YES ✓ (64 tasks, all §2-17 intact)
 
-### Section 17 Capabilities Verified
-- **Evidence-driven validation and promotion**: ✓
-- **Supporting, contradictory, and neutral evidence preserved**: ✓
-- **Insufficient evidence does NOT cause promotion**: ✓
-- **Contradictory evidence prevents blind promotion**: ✓
-- **Promotion/restriction is applicability-scoped**: ✓
-- **Cross-node evidence and provenance preserved**: ✓
-- **Validation decisions are immutable**: ✓
-- **Reversal creates new decision without deleting history**: ✓
-- **Explicit versioned validation rules**: ✓
-- **Every decision records its rule version**: ✓
-- **Repeat experiments integrate through Section 16 mechanisms**: ✓
-- **Explicit authority boundaries**: ✓
-- **Automatic promotion configurable (defaults to FALSE)**: ✓
-- **Provider-agnostic implementation (no OpenClaw coupling)**: ✓
-- **Production data and §2-16 regression preserved**: ✓
+### Section 18 Capabilities Verified
+- **Node definition identity and versioning**: ✓
+- **Persistent node instances separate from definitions**: ✓
+- **Definition versioning with lineage preservation**: ✓
+- **Explicit lifecycle states (candidate/experimental/validated/restricted/deprecated/retired)**: ✓
+- **Evolution proposals with deterministic triggers**: ✓
+- **Capability gap detection from real evidence**: ✓
+- **Candidate node definitions without auto-provisioning**: ✓
+- **Section 16 experiment integration for evaluation**: ✓
+- **Section 17 validation integration before promotion**: ✓
+- **No universal node scoring (evidence remains contextual)**: ✓
+- **Cross-node evidence preservation with provenance**: ✓
+- **Capability requirement tracking and evolution**: ✓
+- **Node instance request authority boundaries**: ✓
+- **Definition retirement and supersession**: ✓
+- **Reversibility through decision history**: ✓
+- **Provider-agnostic external node interface**: ✓
+- **Idempotent operations and duplicate prevention**: ✓
+- **Explainability and audit trail**: ✓
+- **No unrestricted autonomous provisioning**: ✓
+- **Production data and §2-17 regression preserved**: ✓
 
 ### Verified Learning/Evolution Chain
 
@@ -155,11 +160,53 @@ The Learning Fabric must remain provider-agnostic and support heterogeneous real
 The Learning Fabric is the organisational source of truth. AI nodes are clients/workers.
 Preserve this separation through all remaining sections.
 
+### Section 18 Implementation Summary
+
+**Node Evolution Schema (14 tables):**
+- node_definitions: Persistent identity
+- node_definition_versions: Immutable snapshots with lineage
+- node_definition_lineage: Parent-child relationships
+- node_instances: Running/available instances
+- capability_gaps: Missing capability observations
+- node_evolution_proposals: Improvement suggestions
+- node_config_comparisons: Comparative evidence
+- node_evolution_decisions: Promotion/restriction decisions
+- node_evolution_history: Audit trail
+- node_instance_requests: Authority for spawning
+- node_evolution_rule_config: Explicit configurable controls
+- node_proposal_dedup_registry: Duplicate prevention
+- capability_requirements: Tracked requirements
+- node_capability_evidence: Decision support
+
+**Core Behavior:**
+- Real capability gaps from failed outcomes → proposals → candidate definitions
+- Candidate definitions evaluated through Section 16 experiments
+- Validated through Section 17 promotion system
+- Applied definitions used by Section 15 orchestration
+- Evidence preserved, decisions immutable, reversible through contradictions
+- No automatic provisioning; request/approval boundaries explicit
+- Instances tracked separately from definitions
+- Provider-agnostic interface supports heterogeneous nodes
+
+**Production Tests:**
+1. Node definition creation ✓
+2. Definition versioning ✓
+3. Capability gap detection ✓
+4. Evolution proposal creation ✓
+5. Candidate definition creation ✓
+6. Node instance creation ✓
+7. Evolution decision making ✓
+8. Decision application ✓
+9. Definition lineage ✓
+10. Evolution history ✓
+11. Baseline regression ✓
+12. Schema health ✓
+
 ### Next Section
 
-**SECTION 18 — Node Evolution**
+**SECTION 19 — Self-Organisation**
 
-Begin design phase for managing real node lifecycle: provisioning, capability evolution, reputation/reliability tracking, failure modes, scaling.
+Design phase for autonomous organisational structure evolution: team formation, dynamic hierarchy, topology changes, resource allocation, without central planning authority.
 
 
 
