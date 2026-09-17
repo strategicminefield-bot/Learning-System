@@ -78,25 +78,32 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 22 — Production Hardening ✅ PRODUCTION VERIFIED
+SECTION 23 — Full Evolutionary Loop ✅ PRODUCTION VERIFIED (RECOVERED)
 
-NEXT SECTION: SECTION 23 — Full Evolutionary Loop
+NEXT SECTION: SECTION 24 — Final System Verification
 
-### Production Status: VERIFIED & CURRENT
-- **Sections 2–22:** All production verified
-- **Current Commit:** 1c14067 (Section 22: Production E2E Verification Complete - All Tests PASS)
-- **Implementation Commit:** 02266ca (Section 22: Production Hardening - Application Layer Only)
-- **Local Git HEAD:** 1c14067 (VERIFIED)
-- **Remote/GitHub HEAD:** 1c14067 (VERIFIED)
-- **VPS Git HEAD:** 1c14067 (VERIFIED)
-- **Git/VPS Match:** YES ✓ (all three at identical commit)
+### Production Status: VERIFIED & CURRENT (Section 23 Recovery Complete)
+
+**CRITICAL RECOVERY EVENT (2026-09-17):**
+Section 23 had been completed and deployed to production BEFORE reset, but was completely removed from Git history during the reset context reconstruction. Section 23 was recovered from VPS production backups and restored to authoritative repository state.
+
+- **Sections 2–23:** All production verified
+- **Current Commit:** d9737f0 (RECOVERY: Section 23 Evolutionary Cycles restored + fixes)
+- **Section 23 Recovery Commits:**
+  - 63939c4: RECOVERY - Section 23 Evolutionary Cycles - Restore from production backup
+  - d9737f0: Fix - Remove duplicate except clauses in Section 22/23 router registration
+- **Local Git HEAD:** d9737f0 (VERIFIED - Section 23 active)
+- **Remote/GitHub HEAD:** d9737f0 (VERIFIED - Section 23 restored)
+- **VPS Git HEAD:** d9737f0 (VERIFIED - Section 23 synchronized)
+- **Git/VPS Match:** YES ✓ (all three at identical commit; Section 23 active)
 - **API Version:** 1.0.6 (healthy, verified at deployment)
-- **API Status:** ✓ RUNNING (`/health` responds ok)
-- **Migration 022:** Applied successfully to production VPS PostgreSQL (8 hardening tables)
-- **Total Schema Tables:** 192 (184 existing + 8 Section 22)
-- **DB Health:** PASS ✓ (192 tables verified, all constraints applied, all indices created)
-- **Baseline Data Preserved:** YES ✓ (64 tasks, 9 governance decisions, all §2-21 intact)
-- **Production E2E Tests:** PASS ✓ (12 resilience tests executed with actual observed evidence)
+- **API Status:** ✓ RUNNING (`/health/ready` returns ready: true)
+- **Migration 023:** Present in repository; applied to production VPS PostgreSQL (9 evolution_cycle tables)
+- **Total Schema Tables:** 201 (192 from §2-22 + 9 Section 23)
+- **DB Health:** PASS ✓ (201 tables verified, all constraints applied, all indices created)
+- **Baseline Data Preserved:** YES ✓ (64 tasks, 9 governance decisions, all §2-22 intact)
+- **Section 23 Production Data:** VERIFIED ✓ (24 evolutionary cycles present, endpoints active, cycles queryable)
+- **Production E2E Tests:** All 12 Section 22 resilience tests PASS + Section 23 deployment verified
 - **Blockers:** NONE
 
 ### Section 19 Capabilities Verified
@@ -3422,3 +3429,105 @@ All governance gates enforced. Sections 15-19 protected by pre-execution checks.
 ## Sections 1-21: Complete and Production Verified
 
 All 21 sections implemented, tested in production, and operationally verified. Learning Fabric is ready for multi-node heterogeneous deployment.
+
+---
+
+## Permanent Operational Documentation
+
+Three documents have been created to serve as permanent operational references. These documents are mandatory reading after every `/reset` or context recovery:
+
+### 1. OPERATING_ENVIRONMENT.md
+
+**Comprehensive operational reference.** Describes:
+- Project identity and structure
+- Local development environment setup
+- VPS access and deployment mechanism
+- Git workflows and source-of-truth rules
+- Configuration, secrets, and database management
+- API endpoints and health checks
+- Management Access Invariant (permanent protection rules)
+- Recovery procedures and discrepancy handling
+
+**Use case:** Understanding how the system is structured and deployed; troubleshooting connectivity or deployment issues.
+
+**Must-read:** After any reset; before making infrastructure changes.
+
+### 2. OPENCLAW_START.md
+
+**Read-only startup verification procedure.** Designed to run after context reset without requiring memory reconstruction. Follows exact steps:
+1. Verify local Git state
+2. Read permanent documentation (PROJECT_STATE, OPERATING_ENVIRONMENT, OPENCLAW_START)
+3. Verify local/remote Git synchronization
+4. Verify SSH access to VPS
+5. Verify VPS Git state
+6. Verify API health and readiness
+7. Verify database health and baseline data
+8. Compare against PROJECT_STATE
+9. Verify Section 23 operations
+10. Determine READY or report DISCREPANCY
+
+**Result:** Either "READY FOR WORK" or detailed discrepancy evidence for user review.
+
+**Use case:** First action after every `/reset`.
+
+**Time:** Approximately 2-3 minutes.
+
+**Critical property:** DETERMINISTIC and READ-ONLY. Does not assume, rebuild, fix, or modify anything. Only observes and verifies.
+
+### 3. Relationship to Recovery Procedure
+
+**When `/reset` is invoked:**
+1. Local context is destroyed
+2. OpenClaw wakes in a fresh session
+3. OpenClaw reads PROJECT_STATE.md
+4. OpenClaw reads OPERATING_ENVIRONMENT.md  
+5. OpenClaw reads OPENCLAW_START.md
+6. OpenClaw executes OPENCLAW_START.md (read-only startup)
+7. OpenClaw reports READY or DISCREPANCY
+8. Only after readiness is confirmed: OpenClaw waits for user instruction
+
+**Critical:** The recovery process NEVER reconstructs environment from memory. It ALWAYS uses these three permanent documents as source of truth.
+
+---
+
+## Startup After Context Reset (MANDATORY PROCEDURE)
+
+**When OpenClaw receives a new request after `/reset`:**
+
+```
+1. Read PROJECT_STATE.md
+2. Read OPERATING_ENVIRONMENT.md
+3. Read OPENCLAW_START.md
+4. Execute OPENCLAW_START.md (deterministic read-only verification)
+5. Report status: READY or DISCREPANCY
+6. Wait for user instruction
+```
+
+**This is not optional. It is the recovery safeguard.**
+
+---
+
+## Summary
+
+Learning Fabric consists of:
+
+- **Section 2-23:** Fully implemented, tested, and deployed
+- **API:** FastAPI (uvicorn) running on VPS
+- **Database:** PostgreSQL with 201 tables (all migrations applied)
+- **Deployment:** Docker Compose on Vultr VPS
+- **Source of Truth:** GitHub (`strategicminefield-bot/Learning-System`)
+- **Production Data:** 64+ tasks, 9+ governance decisions, 24+ evolution cycles, all preserved
+- **Management Access:** Protected by permanent invariant; cannot be autonomously modified
+- **Recovery:** Supported by OPERATING_ENVIRONMENT.md, OPENCLAW_START.md, PROJECT_STATE.md
+
+---
+
+## Next Section
+
+**SECTION 24 — Final System Verification**
+
+Scope: Comprehensive system-level end-to-end verification; readiness assessment for heterogeneous real-node deployment (OpenClaw executors, OpenAI architect/verifier, independent verifiers).
+
+**Status:** NOT YET STARTED. Awaiting explicit Section 24 prompt after successful `/reset` recovery test.
+
+---
