@@ -131,6 +131,15 @@ except ImportError:
 except Exception as e:
     logger.warning(f"Section 21 evaluation failed to load: {e}")
 
+# Section 22: Production Hardening
+try:
+    from hardening_health_endpoints import router as hardening_router
+    app.include_router(hardening_router)
+except ImportError:
+    logger.warning("Section 22 hardening endpoints not available")
+except Exception as e:
+    logger.warning(f"Section 22 hardening failed to load: {e}")
+
 if migration_router:
     app.include_router(migration_router)
 
