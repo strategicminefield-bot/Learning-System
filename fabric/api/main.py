@@ -96,6 +96,12 @@ try:
 except ImportError:
     migration_router = None
 
+# Section 25: System Memory & Node Reconstitution
+try:
+    from system_memory_endpoints import router as system_memory_router
+except ImportError:
+    system_memory_router = None
+
 from pydantic import BaseModel
 
 app = FastAPI(title='Learning Fabric API', version='1.0.0')
@@ -157,6 +163,15 @@ else:
 
 if migration_router:
     app.include_router(migration_router)
+
+# Section 25: System Memory & Node Reconstitution
+if system_memory_router:
+    try:
+        app.include_router(system_memory_router)
+    except Exception as e:
+        logger.warning(f"Section 25 system memory endpoints failed to load: {e}")
+else:
+    logger.warning("Section 25 system memory endpoints not available")
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
