@@ -78,20 +78,20 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 3 — Event Recording and History API
+SECTION 4 — Worker Status and Health Tracking API
 
 Objective:
 
-Implement event recording and audit trail system for complete history tracking of all lifecycle transitions. Enable querying of events for debugging, analysis, and foundation for learning layer.
+Implement comprehensive worker status management, health tracking, and capability registry for managing distributed AI workers/nodes.
 
 Required capabilities:
 
-- Event recording during all state transitions
-- Audit trail queries
-- Event filtering and pagination
-- Previous/current state capture
-- Metadata recording
-- Chronological history reconstruction
+- Worker status lifecycle management
+- Heartbeat and availability tracking
+- Performance metrics collection
+- Worker capability registry
+- Health status history
+- Metrics aggregation and summary
 
 ---
 
@@ -505,6 +505,104 @@ Latest attempt status:
 The test assignment/task/node are currently part of the live test state.
 
 ---
+
+## Section 4 Completed
+
+### Worker Status Management
+
+Migration: `migrations/004_worker_status.sql`
+
+New tables:
+
+#### worker_status_history
+Records all status transitions:
+- `status_id`: UUID primary key
+- `node_id`: Worker node UUID
+- `previous_status`: Status before transition
+- `current_status`: Status after transition
+- `reason`: Optional reason
+- `created_at`: Transition timestamp
+
+Statuses: available, busy, unavailable, error
+
+#### worker_metrics
+Tracks worker performance:
+- `metric_id`: UUID primary key
+- `node_id`: Worker node UUID
+- `tasks_completed`: Successfully completed tasks
+- `tasks_failed`: Failed tasks
+- `average_quality_score`: Mean quality score
+- `successful_attempts`: Successful attempts
+- `total_attempts`: Total attempts
+- `last_heartbeat`: Latest heartbeat timestamp
+- `uptime_seconds`: Cumulative uptime
+
+#### worker_capabilities
+Capability registry:
+- `capability_id`: UUID primary key
+- `node_id`: Worker node UUID
+- `capability_name`: Name (text_analysis, code_generation, etc.)
+- `capability_version`: Version string
+- `enabled`: Boolean
+- `performance_rating`: Rating (default 1.0)
+- `last_used`: Timestamp of last use
+
+### Worker Status Endpoints
+
+#### POST /workers/{node_id}/status
+Update worker status and record history.
+
+Payload: `{"status": "available|busy|unavailable|error", "reason": "optional"}`
+
+#### GET /workers/{node_id}
+Get detailed worker status and metrics.
+
+Response: node info, metrics (tasks_completed, tasks_failed, quality_score, attempts, last_heartbeat, uptime), capabilities array
+
+#### POST /workers/{node_id}/heartbeat
+Record worker heartbeat for availability tracking.
+
+#### POST /workers/{node_id}/capabilities
+Add or update worker capability.
+
+Payload: `{"capability_name": "...", "capability_version": "...", "enabled": true}`
+
+#### GET /workers
+List all workers with optional filtering.
+
+Query: `status` (optional), `limit` (1-1000, default 100)
+
+#### GET /workers/metrics/summary
+Aggregate metrics for all workers.
+
+Response: workers_by_status dict, aggregate_metrics (total_completed, total_failed, avg_quality_score, worker_count)
+
+### Metrics Integration
+
+Metrics automatically updated during lifecycle:
+- Result submission: Increments successful_attempts, updates average_quality_score
+- Assignment completion: Increments tasks_completed
+- Assignment failure: Increments tasks_failed
+- Any operation: Updates last_heartbeat
+
+### Worker Capability Registry
+
+Workers can register capabilities with name, version, enabled flag, performance rating, and last_used timestamp.
+
+Unique constraint on (node_id, capability_name).
+
+### Tests
+
+Test script: `tests/test_section4_worker_status.py`
+
+Verifies:
+✓ Worker status updates and history
+✓ Heartbeat recording
+✓ Capability registration
+✓ Worker status retrieval
+✓ Worker listing and filtering
+✓ Metrics summary
+✓ Metrics updates during lifecycle
 
 ## Git History
 

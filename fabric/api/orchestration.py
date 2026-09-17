@@ -370,6 +370,24 @@ def submit_attempt_result(attempt_id: str, payload: ResultIn):
                 current_state={"status": "completed"},
                 metadata={"action": "result_recorded", "result_id": str(result_id), "quality_score": payload.quality_score}
             )
+            
+            # Update worker metrics
+            cur.execute(
+                """
+                UPDATE worker_metrics
+                SET successful_attempts = COALESCE(successful_attempts, 0) + 1,
+                    total_attempts = COALESCE(total_attempts, 0) + 1,
+                    average_quality_score = (
+                        CASE WHEN COALESCE(total_attempts, 0) > 0
+                        THEN (COALESCE(average_quality_score, 0) * COALESCE(total_attempts, 0) + %s) / (COALESCE(total_attempts, 0) + 1)
+                        ELSE %s
+                        END
+                    ),
+                    updated_at = now()
+                WHERE node_id=%s
+                """,
+                (payload.quality_score or 0.5, payload.quality_score or 0.5, node_uuid)
+            )
 
         conn.commit()
 
@@ -504,6 +522,17 @@ def complete_assignment(assignment_id: str, payload: CompletionIn):
                 current_state={"status": "completed"},
                 metadata={"action": "assignment_completed", "task_id": str(task_id)}
             )
+            
+            # Update worker metrics - increment completed tasks
+            cur.execute(
+                """
+                UPDATE worker_metrics
+                SET tasks_completed = COALESCE(tasks_completed, 0) + 1,
+                    updated_at = now()
+                WHERE node_id=%s
+                """,
+                (node_uuid,)
+            )
 
         conn.commit()
 
@@ -631,6 +660,17 @@ def fail_assignment(assignment_id: str, payload: FailureIn):
                 previous_state={"status": assignment[2]},
                 current_state={"status": "failed"},
                 metadata={"action": "assignment_failed", "reason": payload.reason, "task_id": str(task_id)}
+            )
+            
+            # Update worker metrics - increment failed tasks
+            cur.execute(
+                """
+                UPDATE worker_metrics
+                SET tasks_failed = COALESCE(tasks_failed, 0) + 1,
+                    updated_at = now()
+                WHERE node_id=%s
+                """,
+                (node_uuid,)
             )
 
         conn.commit()
@@ -791,4 +831,295 @@ def audit_trail(entity_type: str, entity_id: str, limit: int = Query(100, ge=1, 
         "entity_id": str(entity_uuid),
         "events": events,
         "total_events": len(events),
+    }
+
+
+# Worker Status Endpoints (Section 4)
+
+class WorkerStatusUpdate(BaseModel):
+    status: str
+    reason: str | None = None
+
+class WorkerCapabilityIn(BaseModel):
+    capability_name: str
+    capability_version: str | None = None
+    enabled: bool = True
+
+@router.post("/workers/{node_id}/status")
+def update_worker_status(node_id: str, payload: WorkerStatusUpdate):
+    """Update worker status and record status history."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    if payload.status not in ("available", "busy", "unavailable", "error"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Get current status
+            cur.execute("SELECT status FROM nodes WHERE node_id=%s", (node_uuid,))
+            node = cur.fetchone()
+            
+            if not node:
+                raise HTTPException(status_code=404, detail="Node not found")
+            
+            previous_status = node[0]
+            
+            # Update node status
+            cur.execute(
+                "UPDATE nodes SET status=%s WHERE node_id=%s",
+                (payload.status, node_uuid)
+            )
+            
+            # Record status history
+            cur.execute(
+                """
+                INSERT INTO worker_status_history
+                (node_id, previous_status, current_status, reason, created_at)
+                VALUES (%s, %s, %s, %s, now())
+                """,
+                (node_uuid, previous_status, payload.status, payload.reason)
+            )
+            
+            # Update heartbeat in metrics
+            cur.execute(
+                """
+                INSERT INTO worker_metrics (node_id, last_heartbeat, updated_at)
+                VALUES (%s, now(), now())
+                ON CONFLICT (node_id) DO UPDATE SET last_heartbeat=now(), updated_at=now()
+                """
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "updated",
+        "node_id": str(node_uuid),
+        "previous_status": previous_status,
+        "current_status": payload.status
+    }
+
+@router.get("/workers/{node_id}")
+def get_worker_status(node_id: str):
+    """Get worker status and metrics."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Get node info
+            cur.execute(
+                "SELECT node_id, node_type, status, created_at FROM nodes WHERE node_id=%s",
+                (node_uuid,)
+            )
+            node = cur.fetchone()
+            
+            if not node:
+                raise HTTPException(status_code=404, detail="Node not found")
+            
+            node_id_ret, node_type, status, created_at = node
+            
+            # Get metrics
+            cur.execute(
+                """
+                SELECT tasks_completed, tasks_failed, average_quality_score,
+                       successful_attempts, total_attempts, last_heartbeat, uptime_seconds
+                FROM worker_metrics WHERE node_id=%s
+                """,
+                (node_uuid,)
+            )
+            metrics_row = cur.fetchone()
+            
+            if metrics_row:
+                metrics = {
+                    "tasks_completed": metrics_row[0] or 0,
+                    "tasks_failed": metrics_row[1] or 0,
+                    "average_quality_score": float(metrics_row[2]) if metrics_row[2] else None,
+                    "successful_attempts": metrics_row[3] or 0,
+                    "total_attempts": metrics_row[4] or 0,
+                    "last_heartbeat": metrics_row[5].isoformat() if metrics_row[5] else None,
+                    "uptime_seconds": metrics_row[6] or 0,
+                }
+            else:
+                metrics = None
+            
+            # Get capabilities
+            cur.execute(
+                """
+                SELECT capability_name, capability_version, enabled, performance_rating, last_used
+                FROM worker_capabilities WHERE node_id=%s ORDER BY capability_name
+                """,
+                (node_uuid,)
+            )
+            capabilities = []
+            for row in cur.fetchall():
+                capabilities.append({
+                    "name": row[0],
+                    "version": row[1],
+                    "enabled": row[2],
+                    "performance_rating": float(row[3]) if row[3] else 1.0,
+                    "last_used": row[4].isoformat() if row[4] else None
+                })
+    
+    return {
+        "node_id": str(node_id_ret),
+        "node_type": node_type,
+        "status": status,
+        "created_at": created_at.isoformat(),
+        "metrics": metrics,
+        "capabilities": capabilities
+    }
+
+@router.post("/workers/{node_id}/heartbeat")
+def worker_heartbeat(node_id: str):
+    """Record worker heartbeat."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Check node exists
+            cur.execute("SELECT node_id FROM nodes WHERE node_id=%s", (node_uuid,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Node not found")
+            
+            # Update heartbeat
+            cur.execute(
+                """
+                INSERT INTO worker_metrics (node_id, last_heartbeat, updated_at)
+                VALUES (%s, now(), now())
+                ON CONFLICT (node_id) DO UPDATE SET last_heartbeat=now(), updated_at=now()
+                """,
+                (node_uuid,)
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "heartbeat_recorded",
+        "node_id": str(node_uuid),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@router.post("/workers/{node_id}/capabilities")
+def add_worker_capability(node_id: str, payload: WorkerCapabilityIn):
+    """Add or update worker capability."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Check node exists
+            cur.execute("SELECT node_id FROM nodes WHERE node_id=%s", (node_uuid,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Node not found")
+            
+            # Insert or update capability
+            cur.execute(
+                """
+                INSERT INTO worker_capabilities
+                (node_id, capability_name, capability_version, enabled, performance_rating, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, 1.0, now(), now())
+                ON CONFLICT (node_id, capability_name) DO UPDATE SET
+                    capability_version=EXCLUDED.capability_version,
+                    enabled=EXCLUDED.enabled,
+                    updated_at=now()
+                """,
+                (node_uuid, payload.capability_name, payload.capability_version, payload.enabled)
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "capability_added",
+        "node_id": str(node_uuid),
+        "capability": payload.capability_name
+    }
+
+@router.get("/workers")
+def list_workers(status: str | None = Query(None), limit: int = Query(100, ge=1, le=1000)):
+    """List all workers with optional status filter."""
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            if status:
+                cur.execute(
+                    """
+                    SELECT node_id, node_type, status, created_at
+                    FROM nodes
+                    WHERE status=%s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (status, limit)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT node_id, node_type, status, created_at
+                    FROM nodes
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (limit,)
+                )
+            
+            workers = []
+            for row in cur.fetchall():
+                node_id, node_type, node_status, created_at = row
+                
+                # Get metrics for this node
+                cur.execute(
+                    "SELECT last_heartbeat FROM worker_metrics WHERE node_id=%s",
+                    (node_id,)
+                )
+                metrics_row = cur.fetchone()
+                last_heartbeat = metrics_row[0].isoformat() if metrics_row and metrics_row[0] else None
+                
+                workers.append({
+                    "node_id": str(node_id),
+                    "node_type": node_type,
+                    "status": node_status,
+                    "created_at": created_at.isoformat(),
+                    "last_heartbeat": last_heartbeat
+                })
+    
+    return {
+        "workers": workers,
+        "total": len(workers),
+        "status_filter": status,
+        "limit": limit
+    }
+
+@router.get("/workers/metrics/summary")
+def workers_metrics_summary():
+    """Get summary metrics for all workers."""
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Worker counts by status
+            cur.execute(
+                """
+                SELECT status, COUNT(*) FROM nodes GROUP BY status
+                """
+            )
+            status_counts = {row[0]: row[1] for row in cur.fetchall()}
+            
+            # Aggregate metrics
+            cur.execute(
+                """
+                SELECT
+                    SUM(tasks_completed) as total_completed,
+                    SUM(tasks_failed) as total_failed,
+                    AVG(average_quality_score) as avg_quality,
+                    COUNT(*) as worker_count
+                FROM worker_metrics
+                """
+            )
+            metrics_row = cur.fetchone()
+            
+            aggregate = {
+                "total_tasks_completed": metrics_row[0] or 0,
+                "total_tasks_failed": metrics_row[1] or 0,
+                "average_quality_score": float(metrics_row[2]) if metrics_row[2] else None,
+                "workers_with_metrics": metrics_row[3] or 0
+            }
+    
+    return {
+        "workers_by_status": status_counts,
+        "aggregate_metrics": aggregate
     }
