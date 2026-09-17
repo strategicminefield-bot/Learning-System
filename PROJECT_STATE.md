@@ -78,21 +78,20 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 2 — Worker / Assignment Lifecycle
+SECTION 3 — Event Recording and History API
 
 Objective:
 
-Create the complete lifecycle allowing an AI worker/node to receive work, claim it, execute attempts, record results and observations, and complete or fail the assignment.
+Implement event recording and audit trail system for complete history tracking of all lifecycle transitions. Enable querying of events for debugging, analysis, and foundation for learning layer.
 
-Required lifecycle:
+Required capabilities:
 
-assignment
-→ claim
-→ attempt
-→ result
-→ observations
-→ complete/fail
-→ task/node state updates
+- Event recording during all state transitions
+- Audit trail queries
+- Event filtering and pagination
+- Previous/current state capture
+- Metadata recording
+- Chronological history reconstruction
 
 ---
 
@@ -108,6 +107,10 @@ Learning Fabric core migration:
 
 `migrations/002_learning_fabric_core.sql`
 
+Events migration:
+
+`migrations/003_events.sql`
+
 Important tables include:
 
 - workflows
@@ -119,7 +122,7 @@ Important tables include:
 - observations
 - nodes
 - requests
-- events
+- events (Section 3)
 
 Important status values currently used:
 
@@ -150,7 +153,157 @@ Important status values currently used:
 
 ---
 
-## Section 2 Completed
+## Section 3 Completed
+
+### Event Recording Table
+
+Migration: `migrations/003_events.sql`
+
+Schema:
+- `event_id` UUID primary key
+- `event_type` TEXT: type of event (created, claimed, completed, failed, result_submitted, etc.)
+- `entity_type` TEXT: type of entity (assignment, attempt, task, etc.)
+- `entity_id` UUID: ID of affected entity
+- `node_id` UUID: optional reference to acting node
+- `previous_state` JSONB: state before transition
+- `current_state` JSONB: state after transition
+- `metadata` JSONB: event-specific metadata (action, reason, etc.)
+- `created_at` TIMESTAMPTZ: event timestamp
+
+Indexes on:
+- entity (entity_type, entity_id)
+- event_type
+- node_id
+- created_at DESC
+- entity+time (entity_type, entity_id, created_at DESC)
+
+### Event Recording Integration
+
+All lifecycle endpoints now record events:
+- Assignment creation → `event_type: 'created', entity_type: 'assignment'`
+- Assignment claim → `event_type: 'claimed', entity_type: 'assignment'`
+- Attempt creation → `event_type: 'created', entity_type: 'attempt'`
+- Result submission → `event_type: 'result_submitted', entity_type: 'attempt'`
+- Assignment completion → `event_type: 'completed', entity_type: 'assignment'`
+- Attempt failure → `event_type: 'failed', entity_type: 'attempt'`
+- Assignment failure → `event_type: 'failed', entity_type: 'assignment'`
+
+Each event captures:
+- Previous state (before transition)
+- Current state (after transition)
+- Node responsible for action
+- Action metadata
+- Precise timestamp
+
+### Event Query Endpoints
+
+#### GET /events
+
+List events with optional filtering:
+
+Query parameters:
+- `entity_type` (optional): Filter by entity type (assignment, attempt, task)
+- `entity_id` (optional): Filter by specific entity UUID
+- `event_type` (optional): Filter by event type (created, claimed, completed, failed, etc.)
+- `node_id` (optional): Filter by acting node
+- `limit` (optional, default 100, max 1000): Result limit
+- `offset` (optional, default 0): Pagination offset
+
+Response:
+```json
+{
+  "events": [
+    {
+      "event_id": "<uuid>",
+      "event_type": "claimed",
+      "entity_type": "assignment",
+      "entity_id": "<uuid>",
+      "node_id": "<uuid>",
+      "previous_state": {"status": "assigned"},
+      "current_state": {"status": "claimed"},
+      "metadata": {"action": "assignment_claimed"},
+      "created_at": "2026-09-17T08:47:00Z"
+    }
+  ],
+  "count": <number>,
+  "offset": <number>,
+  "limit": <number>
+}
+```
+
+#### GET /events/{event_id}
+
+Retrieve specific event by ID:
+
+Response: Single event object with full details.
+
+#### GET /audit/{entity_type}/{entity_id}
+
+Get complete chronological audit trail for an entity:
+
+Path parameters:
+- `entity_type`: Type of entity (assignment, attempt, task)
+- `entity_id`: UUID of entity
+
+Query parameters:
+- `limit` (optional, default 100): Maximum events to return
+
+Response:
+```json
+{
+  "entity_type": "assignment",
+  "entity_id": "<uuid>",
+  "events": [
+    {"event_type": "created", "previous_state": null, "current_state": {"status": "assigned"}, "created_at": "..."},
+    {"event_type": "claimed", "previous_state": {"status": "assigned"}, "current_state": {"status": "claimed"}, "created_at": "..."}
+  ],
+  "total_events": <number>
+}
+```
+
+### Helper Function: record_event()
+
+Internal utility for event recording:
+
+```python
+record_event(
+    conn,  # Active database connection
+    event_type,  # Type of event
+    entity_type,  # Type of entity affected
+    entity_id,  # UUID of entity
+    node_id=None,  # Optional node UUID
+    previous_state=None,  # State before transition
+    current_state=None,  # State after transition
+    metadata=None  # Event metadata dict
+)
+```
+
+Used internally by all lifecycle endpoints.
+
+### Event-Based History Features
+
+1. **Complete Audit Trail**: Every state transition recorded with before/after states
+2. **Node Accountability**: All events linked to acting node when applicable
+3. **Temporal Ordering**: Events queryable by timestamp for timeline reconstruction
+4. **Metadata Tracking**: Action-specific details (reason for failure, quality scores, etc.)
+5. **Filtering**: Events queryable by entity, type, node, or time
+6. **Foundation for Learning**: Event history enables pattern analysis and AI learning
+
+### Complete Lifecycle Test
+
+Test script: `tests/test_section3_events.py`
+
+Verifies:
+1. Event recording during full lifecycle
+2. Event table populated with all transitions
+3. Event query endpoints functional
+4. Filtering by entity_type, entity_id, event_type
+5. Audit trail generation
+6. State transitions captured correctly
+7. Metadata properly recorded
+8. Temporal ordering maintained
+
+## Section 2 Completed (Previous)
 
 ### Assignment creation
 

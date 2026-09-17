@@ -1,12 +1,36 @@
 import os
 import uuid
+import json
 import psycopg
 from psycopg.types.json import Jsonb
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+from datetime import datetime, timedelta
 
 router = APIRouter()
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+def record_event(conn, event_type, entity_type, entity_id, node_id=None, previous_state=None, current_state=None, metadata=None):
+    """Record an event to the events table. Call within an active transaction."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO events
+            (event_type, entity_type, entity_id, node_id, previous_state, current_state, metadata, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, now())
+            RETURNING event_id
+            """,
+            (
+                event_type,
+                entity_type,
+                entity_id,
+                node_id,
+                Jsonb(previous_state) if previous_state else None,
+                Jsonb(current_state) if current_state else None,
+                Jsonb(metadata) if metadata else Jsonb({}),
+            )
+        )
+        return cur.fetchone()[0]
 
 class WorkflowIn(BaseModel):
     request_id: str
@@ -149,6 +173,18 @@ def create_assignment(assignment: AssignmentIn):
 
             cur.execute("INSERT INTO assignments (task_id, node_id, status) VALUES (%s, %s, 'assigned') RETURNING assignment_id", (task_uuid, node_uuid))
             assignment_id = cur.fetchone()[0]
+            
+            # Record assignment created event
+            record_event(
+                conn,
+                event_type="created",
+                entity_type="assignment",
+                entity_id=assignment_id,
+                node_id=node_uuid,
+                previous_state=None,
+                current_state={"status": "assigned", "task_id": str(task_uuid)},
+                metadata={"action": "assignment_created", "task_id": str(task_uuid)}
+            )
 
         conn.commit()
 
@@ -190,6 +226,20 @@ def claim_assignment(assignment_id: str, payload: dict):
                 "UPDATE nodes SET status='busy' WHERE node_id=%s",
                 (node_uuid,),
             )
+            
+            # Record claim event
+            record_event(
+                conn,
+                event_type="claimed",
+                entity_type="assignment",
+                entity_id=assignment_uuid,
+                node_id=node_uuid,
+                previous_state={"status": "assigned"},
+                current_state={"status": "claimed"},
+                metadata={"action": "assignment_claimed"}
+            )
+
+        conn.commit()
 
     return {"status": "claimed", "assignment_id": str(assignment_uuid)}
 
@@ -232,6 +282,18 @@ def create_attempt(assignment_id: str, payload: dict):
                 "UPDATE assignments SET attempt_count=attempt_count+1 "
                 "WHERE assignment_id=%s",
                 (assignment_uuid,),
+            )
+            
+            # Record attempt creation event
+            record_event(
+                conn,
+                event_type="created",
+                entity_type="attempt",
+                entity_id=attempt_id,
+                node_id=node_uuid,
+                previous_state=None,
+                current_state={"status": "running", "attempt_number": number},
+                metadata={"action": "attempt_created", "attempt_number": number, "assignment_id": str(assignment_uuid)}
             )
 
         conn.commit()
@@ -295,6 +357,18 @@ def submit_attempt_result(attempt_id: str, payload: ResultIn):
                 "UPDATE attempts SET status='completed', completed_at=now() "
                 "WHERE attempt_id=%s",
                 (attempt_uuid,),
+            )
+            
+            # Record result event
+            record_event(
+                conn,
+                event_type="result_submitted",
+                entity_type="attempt",
+                entity_id=attempt_uuid,
+                node_id=node_uuid,
+                previous_state={"status": "running"},
+                current_state={"status": "completed"},
+                metadata={"action": "result_recorded", "result_id": str(result_id), "quality_score": payload.quality_score}
             )
 
         conn.commit()
@@ -418,6 +492,18 @@ def complete_assignment(assignment_id: str, payload: CompletionIn):
                 "UPDATE nodes SET status='available' WHERE node_id=%s",
                 (node_uuid,),
             )
+            
+            # Record completion event
+            record_event(
+                conn,
+                event_type="completed",
+                entity_type="assignment",
+                entity_id=assignment_uuid,
+                node_id=node_uuid,
+                previous_state={"status": "claimed"},
+                current_state={"status": "completed"},
+                metadata={"action": "assignment_completed", "task_id": str(task_id)}
+            )
 
         conn.commit()
 
@@ -468,6 +554,18 @@ def fail_attempt(attempt_id: str, payload: FailureIn):
             cur.execute(
                 "UPDATE nodes SET status='available' WHERE node_id=%s",
                 (node_uuid,),
+            )
+            
+            # Record failure event
+            record_event(
+                conn,
+                event_type="failed",
+                entity_type="attempt",
+                entity_id=attempt_uuid,
+                node_id=node_uuid,
+                previous_state={"status": "running"},
+                current_state={"status": "failed"},
+                metadata={"action": "attempt_failed", "reason": payload.reason}
             )
 
         conn.commit()
@@ -522,6 +620,18 @@ def fail_assignment(assignment_id: str, payload: FailureIn):
                 "UPDATE nodes SET status='available' WHERE node_id=%s",
                 (node_uuid,),
             )
+            
+            # Record failure event
+            record_event(
+                conn,
+                event_type="failed",
+                entity_type="assignment",
+                entity_id=assignment_uuid,
+                node_id=node_uuid,
+                previous_state={"status": assignment[2]},
+                current_state={"status": "failed"},
+                metadata={"action": "assignment_failed", "reason": payload.reason, "task_id": str(task_id)}
+            )
 
         conn.commit()
 
@@ -530,4 +640,155 @@ def fail_assignment(assignment_id: str, payload: FailureIn):
         "assignment_id": str(assignment_uuid),
         "task_id": str(task_id),
         "reason": payload.reason,
+    }
+
+
+# Event Query Endpoints (Section 3)
+
+class EventResponse(BaseModel):
+    event_id: str
+    event_type: str
+    entity_type: str
+    entity_id: str
+    node_id: str | None
+    previous_state: dict | None
+    current_state: dict | None
+    metadata: dict
+    created_at: str
+
+
+@router.get("/events")
+def list_events(
+    entity_type: str | None = Query(None),
+    entity_id: str | None = Query(None),
+    event_type: str | None = Query(None),
+    node_id: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """List events with optional filtering."""
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            where_clauses = []
+            params = []
+            
+            if entity_type:
+                where_clauses.append("entity_type = %s")
+                params.append(entity_type)
+            if entity_id:
+                entity_uuid = as_uuid(entity_id, "entity_id")
+                where_clauses.append("entity_id = %s")
+                params.append(entity_uuid)
+            if event_type:
+                where_clauses.append("event_type = %s")
+                params.append(event_type)
+            if node_id:
+                node_uuid = as_uuid(node_id, "node_id")
+                where_clauses.append("node_id = %s")
+                params.append(node_uuid)
+            
+            where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
+            
+            cur.execute(
+                f"""
+                SELECT event_id, event_type, entity_type, entity_id, node_id,
+                       previous_state, current_state, metadata, created_at
+                FROM events
+                WHERE {where_clause}
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                params + [limit, offset]
+            )
+            
+            events = []
+            for row in cur.fetchall():
+                event_id, event_type, entity_type, entity_id, node_id, prev_state, curr_state, metadata, created_at = row
+                events.append({
+                    "event_id": str(event_id),
+                    "event_type": event_type,
+                    "entity_type": entity_type,
+                    "entity_id": str(entity_id),
+                    "node_id": str(node_id) if node_id else None,
+                    "previous_state": dict(prev_state) if prev_state else None,
+                    "current_state": dict(curr_state) if curr_state else None,
+                    "metadata": dict(metadata) if metadata else {},
+                    "created_at": created_at.isoformat() if created_at else None,
+                })
+    
+    return {"events": events, "count": len(events), "offset": offset, "limit": limit}
+
+
+@router.get("/events/{event_id}")
+def get_event(event_id: str):
+    """Get a specific event by ID."""
+    event_uuid = as_uuid(event_id, "event_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT event_id, event_type, entity_type, entity_id, node_id,
+                       previous_state, current_state, metadata, created_at
+                FROM events
+                WHERE event_id = %s
+                """,
+                (event_uuid,)
+            )
+            row = cur.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="Event not found")
+            
+            event_id, event_type, entity_type, entity_id, node_id, prev_state, curr_state, metadata, created_at = row
+            
+    return {
+        "event_id": str(event_id),
+        "event_type": event_type,
+        "entity_type": entity_type,
+        "entity_id": str(entity_id),
+        "node_id": str(node_id) if node_id else None,
+        "previous_state": dict(prev_state) if prev_state else None,
+        "current_state": dict(curr_state) if curr_state else None,
+        "metadata": dict(metadata) if metadata else {},
+        "created_at": created_at.isoformat() if created_at else None,
+    }
+
+
+@router.get("/audit/{entity_type}/{entity_id}")
+def audit_trail(entity_type: str, entity_id: str, limit: int = Query(100, ge=1, le=1000)):
+    """Get complete audit trail for an entity (assignment, attempt, task, etc.)."""
+    entity_uuid = as_uuid(entity_id, "entity_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT event_id, event_type, entity_type, entity_id, node_id,
+                       previous_state, current_state, metadata, created_at
+                FROM events
+                WHERE entity_type = %s AND entity_id = %s
+                ORDER BY created_at ASC
+                LIMIT %s
+                """,
+                (entity_type, entity_uuid, limit)
+            )
+            
+            events = []
+            for row in cur.fetchall():
+                event_id, event_type, ent_type, ent_id, node_id, prev_state, curr_state, metadata, created_at = row
+                events.append({
+                    "event_id": str(event_id),
+                    "event_type": event_type,
+                    "previous_state": dict(prev_state) if prev_state else None,
+                    "current_state": dict(curr_state) if curr_state else None,
+                    "metadata": dict(metadata) if metadata else {},
+                    "created_at": created_at.isoformat() if created_at else None,
+                })
+    
+    return {
+        "entity_type": entity_type,
+        "entity_id": str(entity_uuid),
+        "events": events,
+        "total_events": len(events),
     }
