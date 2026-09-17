@@ -81,6 +81,12 @@ try:
 except ImportError:
     governance_router = None
 
+# Migration utility (temporary deployment aid)
+try:
+    from migration_utility import router as migration_router
+except ImportError:
+    migration_router = None
+
 from pydantic import BaseModel
 
 app = FastAPI(title='Learning Fabric API', version='1.0.0')
@@ -112,6 +118,8 @@ if self_organisation_router:
     app.include_router(self_organisation_router)
 if governance_router:
     app.include_router(governance_router)
+if migration_router:
+    app.include_router(migration_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
