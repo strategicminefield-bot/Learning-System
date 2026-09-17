@@ -335,10 +335,7 @@ CREATE TABLE governance_approval_decisions (
   
   decided_at TIMESTAMPTZ DEFAULT NOW(),
   
-  CONSTRAINT valid_decision CHECK (decision IN ('approved', 'denied')),
-  CONSTRAINT proposer_not_approver CHECK (approver_actor_id NOT IN (
-    SELECT actor_id FROM governance_approval_requests WHERE approval_request_id = governance_approval_decisions.approval_request_id
-  ))
+  CONSTRAINT valid_decision CHECK (decision IN ('approved', 'denied'))
 );
 
 CREATE INDEX idx_approval_decisions_request ON governance_approval_decisions(approval_request_id);

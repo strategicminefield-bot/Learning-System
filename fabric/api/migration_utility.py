@@ -1,6 +1,7 @@
 """Utility for applying migrations via API."""
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 import psycopg
 import os
 
@@ -8,14 +9,18 @@ router = APIRouter(prefix='/api/v1/migrations', tags=['migrations'])
 DATABASE_URL = os.environ['DATABASE_URL']
 
 
+class MigrationRequest(BaseModel):
+    sql_content: str
+
+
 @router.post('/apply/{migration_number}')
-def apply_migration(migration_number: int, sql_content: str):
+def apply_migration(migration_number: int, req: MigrationRequest):
     """Apply a migration by number and SQL content."""
     try:
         with psycopg.connect(DATABASE_URL) as conn:
             with conn.cursor() as cur:
                 # Execute migration
-                cur.execute(sql_content)
+                cur.execute(req.sql_content)
             conn.commit()
         
         return {

@@ -287,7 +287,7 @@ def approve_action(conn, approval_request_id: str, approver_type: str, approver_
             # Get approval request
             cur.execute(
                 """
-                SELECT approval_request_id, status, decision_id FROM governance_approval_requests
+                SELECT approval_request_id, status, decision_id, actor_id FROM governance_approval_requests
                 WHERE approval_request_id = %s
                 """,
                 (approval_request_id,)
@@ -298,6 +298,10 @@ def approve_action(conn, approval_request_id: str, approver_type: str, approver_
             
             if approval[1] != 'pending':
                 return {'success': False, 'error': f'Approval already {approval[1]}'}
+            
+            # Check for self-approval (proposer cannot approve themselves)
+            if approver_id == approval[3]:
+                return {'success': False, 'error': 'Actor cannot approve their own request (separation of duties)'}
             
             # Record approval decision
             cur.execute(
