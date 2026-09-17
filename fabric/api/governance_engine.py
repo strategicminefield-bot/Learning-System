@@ -169,7 +169,7 @@ def evaluate_governance(
                     resource_type, str(resource_id) if resource_id else None,
                     Jsonb(scope_context), policies_evaluated,
                     effect, reasoning,
-                    authority is not None,
+                    authority_sufficient,
                     authority_sufficient, approval_required, True
                 )
             )
