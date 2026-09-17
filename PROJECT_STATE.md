@@ -82,49 +82,84 @@ SECTION 17 — Validation / Promotion Layer ✅ VERIFIED
 
 ### Production Status: VERIFIED
 - **Sections 2–17:** All production verified
-- **Final Implementation Commit:** a394dca (Section 17: Validation/Promotion Layer - Schema, engine, API, tests)
-- **Local Git HEAD:** a394dca (MATCH: YES)
-- **VPS Git HEAD:** a394dca (verified sync)
+- **Final Commit:** a99ce72 (Section 17: Production verification complete)
+- **Local Git HEAD:** a99ce72 (MATCH: YES)
+- **Remote/GitHub HEAD:** a99ce72 (MATCH: YES)
+- **VPS Git HEAD:** a99ce72 (MATCH: YES)
 - **API Version:** 1.0.0 (healthy, validation endpoints registered)
 - **Migration 017:** Applied successfully to production
-- **Total Schema Tables:** 124 (115 existing + 11 validation tables)
+- **Total Schema Tables:** 124 (115 existing + 11 validation)
 - **DB Health:** PASS ✓
-- **Production E2E:** PASS ✓ (8/8 tests passing)
+- **Production E2E:** PASS ✓ (8/8 tests)
 - **Data Preserved:** YES ✓ (64 tasks, 24 strategies, all §2-16 intact)
 
 ### Section 17 Capabilities Verified
-- Validation candidate creation & immutability: ✓
-- Evidence assembly from experiments & operations: ✓
-- Eligibility assessment (pre-validation checks): ✓
-- Evidence sufficiency determination: ✓
-- Promotion decision (evidence-driven, deterministic): ✓
-- Contradiction handling (dispute vs blind promotion): ✓
-- Restricted promotions (scoped validation): ✓
-- Decision application to production state: ✓
-- Decision immutability & reversal history: ✓
-- Cross-node evidence tracking: ✓
-- Repeat experiment request mechanism: ✓
-- Rule configuration & versioning: ✓
-- Authority boundary enforcement (no autonomous override): ✓
-- Full §16 experiment integration: ✓
-- Full §14 strategy learning integration: ✓
-- Idempotent operations: ✓
-- Provider-agnostic architecture: ✓
+- **Evidence-driven validation and promotion**: ✓
+- **Supporting, contradictory, and neutral evidence preserved**: ✓
+- **Insufficient evidence does NOT cause promotion**: ✓
+- **Contradictory evidence prevents blind promotion**: ✓
+- **Promotion/restriction is applicability-scoped**: ✓
+- **Cross-node evidence and provenance preserved**: ✓
+- **Validation decisions are immutable**: ✓
+- **Reversal creates new decision without deleting history**: ✓
+- **Explicit versioned validation rules**: ✓
+- **Every decision records its rule version**: ✓
+- **Repeat experiments integrate through Section 16 mechanisms**: ✓
+- **Explicit authority boundaries**: ✓
+- **Automatic promotion configurable (defaults to FALSE)**: ✓
+- **Provider-agnostic implementation (no OpenClaw coupling)**: ✓
+- **Production data and §2-16 regression preserved**: ✓
 
-### Next Section
-SECTION 18+ — Design Phase
+### Verified Learning/Evolution Chain
+
+```
+experience
+  ↓
+learning (§6: patterns, insights, outcomes)
+  ↓
+memory/retrieval (§8-9: persistent memory with full provenance)
+  ↓
+learning application (§10: execute guidance from learned context)
+  ↓
+feedback/validation evidence (§11: measure outcome quality)
+  ↓
+cross-node learning (§12: organisational knowledge sharing)
+  ↓
+knowledge evolution (§13: evidence-driven lifecycle: strengthen/weaken/dispute/restrict/retire)
+  ↓
+strategy/method learning (§14: what works for what; effectiveness with confidence)
+  ↓
+adaptive orchestration (§15: evidence-based strategy & worker selection)
+  ↓
+controlled experimentation (§16: hypothesis testing, A/B control/treatment arms)
+  ↓
+validation/promotion (§17: evidence-driven status change decisions)
+  ↓
+controlled production-state change (ready for §18+)
+  ↓
+continued feedback (loop closes)
+```
 
 ### External AI Node Interface Requirement
+
 **CRITICAL ARCHITECTURE REQUIREMENT:** 
-The Learning Fabric must remain provider-agnostic and support heterogeneous AI nodes including:
+
+The Learning Fabric must remain provider-agnostic and support heterogeneous real nodes including:
 - OpenClaw executors
 - OpenAI Architect/Verifier agents
 - Claude/GPT workers
-- Other model/provider agents
+- Other AI/model/provider agents
 
-**Do NOT couple future architecture to OpenClaw or any single provider.**
-The Learning Fabric is the organisational source of truth; AI nodes are clients/workers.
-Preserve this separation through Sections 16–24.
+**Do NOT couple future architecture (§18+) to OpenClaw or any single provider.**
+
+The Learning Fabric is the organisational source of truth. AI nodes are clients/workers.
+Preserve this separation through all remaining sections.
+
+### Next Section
+
+**SECTION 18 — Node Evolution**
+
+Begin design phase for managing real node lifecycle: provisioning, capability evolution, reputation/reliability tracking, failure modes, scaling.
 
 
 
