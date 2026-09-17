@@ -118,6 +118,14 @@ if self_organisation_router:
     app.include_router(self_organisation_router)
 if governance_router:
     app.include_router(governance_router)
+
+# Section 21: System-Level Evaluation
+try:
+    from .system_evaluation_endpoints import router as evaluation_router
+    app.include_router(evaluation_router)
+except ImportError:
+    logger.warning("Section 21 evaluation endpoints not available")
+
 if migration_router:
     app.include_router(migration_router)
 
