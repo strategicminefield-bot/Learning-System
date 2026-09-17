@@ -90,7 +90,9 @@ class FabricClient:
     def __init__(self, fabric_url: str, node_id: str):
         self.fabric_url = fabric_url
         self.node_id = node_id
-        self.base_url = f"{fabric_url}/api/v1"
+        # Endpoints are at root level, not /api/v1
+        self.root_url = fabric_url
+        self.api_v1_url = f"{fabric_url}/api/v1"
         self.session = requests.Session()
     
     def register_node(self, config: Dict[str, Any]) -> bool:
@@ -102,9 +104,9 @@ class FabricClient:
                 "status": "available"
             }
             
-            # Try to post to workers endpoint if it exists
+            # Workers endpoint is at root level
             resp = self.session.post(
-                f"{self.base_url}/workers",
+                f"{self.root_url}/workers",
                 json=data,
                 timeout=10
             )
@@ -112,10 +114,13 @@ class FabricClient:
             if resp.status_code in [200, 201]:
                 logger.info(f"Node registered: {self.node_id}")
                 return True
-            elif resp.status_code == 404:
-                # Endpoint might not exist; node may already be registered
-                logger.warning(f"Workers endpoint not found; assuming node exists")
+            elif resp.status_code == 409:
+                # Already registered
+                logger.info(f"Node already registered: {self.node_id}")
                 return True
+            elif resp.status_code == 404:
+                logger.warning(f"Workers endpoint not found")
+                return False
             else:
                 logger.warning(f"Registration failed: {resp.status_code} {resp.text}")
                 return False
@@ -131,8 +136,9 @@ class FabricClient:
                 "last_heartbeat": datetime.now(timezone.utc).isoformat()
             }
             
+            # Heartbeat endpoint is at root level
             resp = self.session.post(
-                f"{self.base_url}/workers/{self.node_id}/heartbeat",
+                f"{self.root_url}/workers/{self.node_id}/heartbeat",
                 json=data,
                 timeout=5
             )
@@ -149,8 +155,9 @@ class FabricClient:
     def poll_assignments(self) -> Optional[Dict[str, Any]]:
         """Poll for available assignments for this node."""
         try:
+            # Assignments endpoint is at root level
             resp = self.session.get(
-                f"{self.base_url}/assignments",
+                f"{self.root_url}/assignments",
                 params={"node_id": self.node_id, "status": "assigned", "limit": 1},
                 timeout=10
             )
@@ -173,8 +180,9 @@ class FabricClient:
         """Claim an assignment."""
         try:
             data = {"node_id": self.node_id}
+            # Claim endpoint is at root level
             resp = self.session.post(
-                f"{self.base_url}/assignments/{assignment_id}/claim",
+                f"{self.root_url}/assignments/{assignment_id}/claim",
                 json=data,
                 timeout=10
             )
@@ -193,8 +201,9 @@ class FabricClient:
         """Create an attempt for an assignment."""
         try:
             data = {"node_id": self.node_id}
+            # Attempt endpoint is at root level
             resp = self.session.post(
-                f"{self.base_url}/assignments/{assignment_id}/attempts",
+                f"{self.root_url}/assignments/{assignment_id}/attempts",
                 json=data,
                 timeout=10
             )
@@ -220,8 +229,9 @@ class FabricClient:
                 "quality_score": result.get("quality_score", 0.5)
             }
             
+            # Result endpoint is at root level
             resp = self.session.post(
-                f"{self.base_url}/attempts/{attempt_id}/result",
+                f"{self.root_url}/attempts/{attempt_id}/result",
                 json=data,
                 timeout=10
             )
