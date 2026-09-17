@@ -33,9 +33,38 @@ class ExperimentationEngine:
         min_sample_size: int = 10,
         evidence_threshold: float = 0.70,
         autonomous_initiated: bool = False,
-        autonomous_trigger_reason: Optional[str] = None
-    ) -> UUID:
-        """Create a new experiment with control and treatment strategies."""
+        autonomous_trigger_reason: Optional[str] = None,
+        actor_type: str = 'system',
+        actor_reference: str = 'experimentation_engine',
+        approval_request_id: Optional[str] = None
+    ) -> dict:
+        """Create a new experiment with control and treatment strategies.
+        
+        PRE-EXECUTION GOVERNANCE CHECK: Experiment creation is a protected action
+        requiring governance evaluation before any DB mutation.
+        """
+        from governance_enforcement import enforce_protected_action
+        
+        # PRE-EXECUTION GOVERNANCE CHECK
+        governance_check = enforce_protected_action(
+            self.conn,
+            protected_action_code='experiment_creation',
+            actor_type=actor_type,
+            actor_reference=actor_reference,
+            resource_type='task_domain',
+            resource_id=task_domain,
+            scope_context={'hypothesis': hypothesis, 'objective': objective},
+            approval_request_id=approval_request_id
+        )
+        
+        if not governance_check['permitted']:
+            # Governance denied the action
+            return {
+                'experiment_id': None,
+                'status': 'governance_denied',
+                'governance_decision': governance_check,
+                'reason': governance_check['reason']
+            }
         
         experiment_id = uuid4()
         
@@ -80,7 +109,11 @@ class ExperimentationEngine:
         )
         
         self.conn.commit()
-        return experiment_id
+        return {
+            'experiment_id': str(experiment_id),
+            'status': 'created',
+            'governance_decision': governance_check
+        }
 
     def check_eligibility(self, experiment_id: UUID) -> Tuple[bool, str]:
         """Check if experiment is eligible to run."""

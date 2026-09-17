@@ -81,12 +81,47 @@ async def make_decision(proposal_id: UUID = Body(...), definition_id: UUID = Bod
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/decisions/{decision_id}/apply")
-async def apply_decision(decision_id: UUID):
+async def apply_decision(
+    decision_id: UUID,
+    actor_type: str = Body("system"),
+    actor_reference: str = Body("node_evolution_engine"),
+    approval_request_id: Optional[str] = Body(None)
+):
     try:
+        from governance_enforcement import enforce_protected_action
+        from typing import Optional
+        from pydantic import Body
+        
         conn = get_connection()
+        
+        # PRE-EXECUTION GOVERNANCE CHECK for node_definition_change
+        governance_check = enforce_protected_action(
+            conn,
+            protected_action_code='node_definition_change',
+            actor_type=actor_type,
+            actor_reference=actor_reference,
+            resource_type='evolution_decision',
+            resource_id=str(decision_id),
+            scope_context={},
+            approval_request_id=approval_request_id
+        )
+        
+        if not governance_check['permitted']:
+            conn.close()
+            return {
+                "applied": False,
+                "status": "governance_denied",
+                "governance_decision": governance_check,
+                "reason": governance_check['reason']
+            }
+        
         success = apply_evolution_decision(conn, decision_id)
         conn.close()
-        return {"applied": success}
+        return {
+            "applied": success,
+            "status": "applied" if success else "failed",
+            "governance_decision": governance_check
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

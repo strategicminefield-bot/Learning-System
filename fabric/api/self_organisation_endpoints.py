@@ -218,9 +218,39 @@ def create_team(
     team_type: str = "temporary",
     expected_duration_seconds: Optional[int] = None,
     created_by: Optional[str] = None,
+    actor_type: str = "system",
+    actor_reference: str = "self_organisation_engine",
+    approval_request_id: Optional[str] = None,
 ):
-    """Create a team from a structure."""
+    """Create a team from a structure with governance enforcement."""
     try:
+        from governance_enforcement import enforce_protected_action
+        from db import get_connection
+        
+        conn = get_connection()
+        
+        # PRE-EXECUTION GOVERNANCE CHECK for org_restructuring
+        governance_check = enforce_protected_action(
+            conn,
+            protected_action_code='org_restructuring',
+            actor_type=actor_type,
+            actor_reference=actor_reference,
+            resource_type='structure',
+            resource_id=structure_id,
+            scope_context={'team_type': team_type, 'task_id': task_id},
+            approval_request_id=approval_request_id
+        )
+        
+        if not governance_check['permitted']:
+            conn.close()
+            return {
+                "status": "governance_denied",
+                "team_id": None,
+                "structure_id": structure_id,
+                "governance_decision": governance_check,
+                "reason": governance_check['reason']
+            }
+        
         team_id = create_team_instantiation(
             structure_id=structure_id,
             structure_version_id=None,
@@ -229,12 +259,14 @@ def create_team(
             expected_duration_seconds=expected_duration_seconds,
             created_by=created_by,
         )
+        conn.close()
         return {
             "status": "created",
             "team_id": team_id,
             "structure_id": structure_id,
             "team_type": team_type,
-            "team_status": "forming"
+            "team_status": "forming",
+            "governance_decision": governance_check
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

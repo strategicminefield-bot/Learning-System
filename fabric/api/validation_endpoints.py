@@ -163,17 +163,46 @@ async def make_decision(
 @router.post("/decisions/{decision_id}/apply")
 async def apply_decision(
     decision_id: UUID,
-    applied_by: str = Body("system")
+    applied_by: str = Body("system"),
+    actor_type: str = Body("system"),
+    actor_reference: str = Body("validation_engine"),
+    approval_request_id: Optional[str] = Body(None)
 ):
-    """Apply validation decision to production state."""
+    """Apply validation decision to production state with governance enforcement."""
     try:
+        from governance_enforcement import enforce_protected_action
+        
         conn = get_connection()
+        
+        # PRE-EXECUTION GOVERNANCE CHECK for learning_promotion
+        governance_check = enforce_protected_action(
+            conn,
+            protected_action_code='learning_promotion',
+            actor_type=actor_type,
+            actor_reference=actor_reference,
+            resource_type='validation_decision',
+            resource_id=str(decision_id),
+            scope_context={'applied_by': applied_by},
+            approval_request_id=approval_request_id
+        )
+        
+        if not governance_check['permitted']:
+            conn.close()
+            return {
+                "decision_id": str(decision_id),
+                "applied": False,
+                "status": "governance_denied",
+                "governance_decision": governance_check,
+                "reason": governance_check['reason']
+            }
+        
         success = apply_validation_decision(conn, decision_id, applied_by)
         conn.close()
         return {
             "decision_id": str(decision_id),
             "applied": success,
-            "status": "applied" if success else "failed"
+            "status": "applied" if success else "failed",
+            "governance_decision": governance_check
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
