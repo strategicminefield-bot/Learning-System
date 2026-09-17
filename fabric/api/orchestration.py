@@ -234,8 +234,300 @@ def create_attempt(assignment_id: str, payload: dict):
                 (assignment_uuid,),
             )
 
+        conn.commit()
+
     return {
         "status": "running",
         "attempt_id": str(attempt_id),
         "attempt_number": number,
+    }
+
+
+class ResultIn(BaseModel):
+    node_id: str
+    result: dict = Field(default_factory=dict)
+    quality_score: float | None = None
+
+
+@router.post("/attempts/{attempt_id}/result")
+def submit_attempt_result(attempt_id: str, payload: ResultIn):
+    attempt_uuid = as_uuid(attempt_id, "attempt_id")
+    node_uuid = as_uuid(payload.node_id, "node_id")
+
+    result_id = uuid.uuid4()
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Validate attempt exists and is running
+            cur.execute(
+                "SELECT task_id, node_id, status, assignment_id "
+                "FROM attempts WHERE attempt_id=%s FOR UPDATE",
+                (attempt_uuid,),
+            )
+            attempt = cur.fetchone()
+
+            if not attempt:
+                raise HTTPException(status_code=404, detail="attempt not found")
+            if attempt[1] != node_uuid:
+                raise HTTPException(status_code=403, detail="wrong node")
+            if attempt[2] != "running":
+                raise HTTPException(status_code=409, detail="attempt not running")
+
+            task_id, _, _, _ = attempt
+
+            # Create result record
+            cur.execute(
+                "INSERT INTO results "
+                "(result_id, attempt_id, task_id, node_id, result, quality_score, status, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'recorded', now())",
+                (
+                    result_id,
+                    attempt_uuid,
+                    task_id,
+                    node_uuid,
+                    Jsonb(payload.result),
+                    payload.quality_score,
+                ),
+            )
+
+            # Complete the attempt
+            cur.execute(
+                "UPDATE attempts SET status='completed', completed_at=now() "
+                "WHERE attempt_id=%s",
+                (attempt_uuid,),
+            )
+
+        conn.commit()
+
+    return {
+        "status": "recorded",
+        "result_id": str(result_id),
+        "attempt_id": str(attempt_uuid),
+    }
+
+
+class ObservationIn(BaseModel):
+    node_id: str
+    observation_type: str
+    content: dict = Field(default_factory=dict)
+    source: str | None = None
+    confidence: float | None = None
+    result_id: str | None = None
+
+
+@router.post("/attempts/{attempt_id}/observations")
+def create_observation(attempt_id: str, payload: ObservationIn):
+    attempt_uuid = as_uuid(attempt_id, "attempt_id")
+    node_uuid = as_uuid(payload.node_id, "node_id")
+    result_uuid = as_uuid(payload.result_id, "result_id") if payload.result_id else None
+
+    observation_id = uuid.uuid4()
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Validate attempt exists
+            cur.execute(
+                "SELECT task_id, node_id, status FROM attempts WHERE attempt_id=%s",
+                (attempt_uuid,),
+            )
+            attempt = cur.fetchone()
+
+            if not attempt:
+                raise HTTPException(status_code=404, detail="attempt not found")
+            if attempt[1] != node_uuid:
+                raise HTTPException(status_code=403, detail="wrong node")
+
+            # If result_id provided, validate it exists
+            if result_uuid:
+                cur.execute(
+                    "SELECT result_id FROM results WHERE result_id=%s",
+                    (result_uuid,),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="result not found")
+
+            # Create observation
+            cur.execute(
+                "INSERT INTO observations "
+                "(observation_id, attempt_id, result_id, observation_type, content, source, confidence, observed_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, now())",
+                (
+                    observation_id,
+                    attempt_uuid,
+                    result_uuid,
+                    payload.observation_type,
+                    Jsonb(payload.content),
+                    payload.source,
+                    payload.confidence,
+                ),
+            )
+
+        conn.commit()
+
+    return {
+        "status": "created",
+        "observation_id": str(observation_id),
+        "attempt_id": str(attempt_uuid),
+    }
+
+
+class CompletionIn(BaseModel):
+    node_id: str
+
+
+@router.post("/assignments/{assignment_id}/complete")
+def complete_assignment(assignment_id: str, payload: CompletionIn):
+    assignment_uuid = as_uuid(assignment_id, "assignment_id")
+    node_uuid = as_uuid(payload.node_id, "node_id")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Validate assignment and node
+            cur.execute(
+                "SELECT task_id, node_id, status FROM assignments "
+                "WHERE assignment_id=%s FOR UPDATE",
+                (assignment_uuid,),
+            )
+            assignment = cur.fetchone()
+
+            if not assignment:
+                raise HTTPException(status_code=404, detail="assignment not found")
+            if assignment[1] != node_uuid:
+                raise HTTPException(status_code=403, detail="wrong node")
+            if assignment[2] != "claimed":
+                raise HTTPException(status_code=409, detail="assignment not claimable")
+
+            task_id = assignment[0]
+
+            # Complete the assignment
+            cur.execute(
+                "UPDATE assignments SET status='completed', completed_at=now() "
+                "WHERE assignment_id=%s",
+                (assignment_uuid,),
+            )
+
+            # Complete the task
+            cur.execute(
+                "UPDATE tasks SET status='completed', completed_at=now() "
+                "WHERE task_id=%s",
+                (task_id,),
+            )
+
+            # Return node to available
+            cur.execute(
+                "UPDATE nodes SET status='available' WHERE node_id=%s",
+                (node_uuid,),
+            )
+
+        conn.commit()
+
+    return {
+        "status": "completed",
+        "assignment_id": str(assignment_uuid),
+        "task_id": str(task_id),
+    }
+
+
+class FailureIn(BaseModel):
+    node_id: str
+    reason: str = "unknown"
+
+
+@router.post("/attempts/{attempt_id}/fail")
+def fail_attempt(attempt_id: str, payload: FailureIn):
+    attempt_uuid = as_uuid(attempt_id, "attempt_id")
+    node_uuid = as_uuid(payload.node_id, "node_id")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Validate attempt
+            cur.execute(
+                "SELECT task_id, node_id, status, assignment_id FROM attempts "
+                "WHERE attempt_id=%s FOR UPDATE",
+                (attempt_uuid,),
+            )
+            attempt = cur.fetchone()
+
+            if not attempt:
+                raise HTTPException(status_code=404, detail="attempt not found")
+            if attempt[1] != node_uuid:
+                raise HTTPException(status_code=403, detail="wrong node")
+            if attempt[2] not in ("running",):
+                raise HTTPException(status_code=409, detail="attempt not running")
+
+            task_id, _, _, assignment_id = attempt
+
+            # Mark attempt as failed
+            cur.execute(
+                "UPDATE attempts SET status='failed', completed_at=now() "
+                "WHERE attempt_id=%s",
+                (attempt_uuid,),
+            )
+
+            # Return node to available (remains available for reassignment)
+            cur.execute(
+                "UPDATE nodes SET status='available' WHERE node_id=%s",
+                (node_uuid,),
+            )
+
+        conn.commit()
+
+    return {
+        "status": "failed",
+        "attempt_id": str(attempt_uuid),
+        "reason": payload.reason,
+    }
+
+
+@router.post("/assignments/{assignment_id}/fail")
+def fail_assignment(assignment_id: str, payload: FailureIn):
+    assignment_uuid = as_uuid(assignment_id, "assignment_id")
+    node_uuid = as_uuid(payload.node_id, "node_id")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Validate assignment
+            cur.execute(
+                "SELECT task_id, node_id, status FROM assignments "
+                "WHERE assignment_id=%s FOR UPDATE",
+                (assignment_uuid,),
+            )
+            assignment = cur.fetchone()
+
+            if not assignment:
+                raise HTTPException(status_code=404, detail="assignment not found")
+            if assignment[1] != node_uuid:
+                raise HTTPException(status_code=403, detail="wrong node")
+            if assignment[2] not in ("assigned", "claimed"):
+                raise HTTPException(status_code=409, detail="assignment not in claimable state")
+
+            task_id = assignment[0]
+
+            # Mark assignment as failed
+            cur.execute(
+                "UPDATE assignments SET status='failed', completed_at=now() "
+                "WHERE assignment_id=%s",
+                (assignment_uuid,),
+            )
+
+            # Mark task as failed
+            cur.execute(
+                "UPDATE tasks SET status='failed', completed_at=now() "
+                "WHERE task_id=%s AND status IN ('pending', 'running')",
+                (task_id,),
+            )
+
+            # Return node to available
+            cur.execute(
+                "UPDATE nodes SET status='available' WHERE node_id=%s",
+                (node_uuid,),
+            )
+
+        conn.commit()
+
+    return {
+        "status": "failed",
+        "assignment_id": str(assignment_uuid),
+        "task_id": str(task_id),
+        "reason": payload.reason,
     }

@@ -196,6 +196,129 @@ Behaviour:
 
 This has been tested successfully on the live VPS.
 
+### Result submission
+
+Endpoint:
+
+`POST /attempts/{attempt_id}/result`
+
+Behaviour:
+
+- validates attempt exists
+- validates node matches
+- requires attempt status `running`
+- creates a result record
+- records result, quality_score, and timestamp
+- updates attempt to `completed` with completed_at
+- preserves attempt history
+
+Payload:
+- `node_id` (required): UUID of node submitting result
+- `result` (optional): dict of result data
+- `quality_score` (optional): numeric quality assessment
+
+### Observation recording
+
+Endpoint:
+
+`POST /attempts/{attempt_id}/observations`
+
+Behaviour:
+
+- validates attempt exists
+- validates node matches
+- creates an observation record
+- supports source and confidence metadata
+- can link to a result where appropriate
+- recorded with timestamp
+
+Payload:
+- `node_id` (required): UUID of observing node
+- `observation_type` (required): string classification
+- `content` (optional): dict of observation data
+- `source` (optional): string source identifier
+- `confidence` (optional): numeric confidence 0-1
+- `result_id` (optional): UUID linking to result
+
+### Assignment completion
+
+Endpoint:
+
+`POST /assignments/{assignment_id}/complete`
+
+Behaviour:
+
+- validates assignment exists
+- validates node matches
+- requires assignment status `claimed`
+- updates assignment to `completed` with completed_at
+- updates associated task to `completed` with completed_at
+- returns node to `available` status
+
+Payload:
+- `node_id` (required): UUID of node completing work
+
+### Attempt failure handling
+
+Endpoint:
+
+`POST /attempts/{attempt_id}/fail`
+
+Behaviour:
+
+- validates attempt exists
+- validates node matches
+- requires attempt status `running`
+- updates attempt to `failed` with completed_at
+- returns node to `available` for reassignment
+- preserves all attempt/result/observation history
+
+Payload:
+- `node_id` (required): UUID of node
+- `reason` (optional): string failure reason
+
+### Assignment failure handling
+
+Endpoint:
+
+`POST /assignments/{assignment_id}/fail`
+
+Behaviour:
+
+- validates assignment exists
+- validates node matches
+- requires assignment status `assigned` or `claimed`
+- updates assignment to `failed` with completed_at
+- updates associated task to `failed` with completed_at (if not already completed)
+- returns node to `available` for reassignment
+- preserves all history and attempt records
+
+Payload:
+- `node_id` (required): UUID of node
+- `reason` (optional): string failure reason
+
+### Complete lifecycle test
+
+Test script: `tests/test_section2_lifecycle.py`
+
+Verifies end-to-end workflow:
+1. Create workflow, task, node, assignment
+2. Claim assignment
+3. Create attempt
+4. Submit result
+5. Create observation
+6. Complete assignment
+7. Verify all state transitions
+8. Verify database consistency
+
+Test confirms:
+- Assignment status progression: assigned → claimed → completed
+- Task status progression: pending → running → completed
+- Node status: available → busy → available
+- Result, attempt, and observation records created
+- All timestamps recorded
+- No data loss in lifecycle
+
 ---
 
 ## Current Live Test Data
