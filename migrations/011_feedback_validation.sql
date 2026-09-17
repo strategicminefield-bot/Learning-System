@@ -67,55 +67,8 @@ CREATE INDEX idx_feedback_task ON feedback_records(task_id);
 CREATE INDEX idx_feedback_created ON feedback_records(created_at DESC);
 CREATE INDEX idx_feedback_hash ON feedback_records(feedback_hash);
 
--- Evidence accumulation per learning item
--- Aggregates across all times this learning has been applied
-CREATE TABLE evidence_accumulation (
-    accumulation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    learning_id UUID NOT NULL,
-    learning_type TEXT NOT NULL, -- outcome, pattern, insight, artifact, graph_entity
-    
-    -- Aggregate counts
-    times_applied INTEGER DEFAULT 0,
-    supportive_count INTEGER DEFAULT 0,
-    contradictory_count INTEGER DEFAULT 0,
-    neutral_count INTEGER DEFAULT 0,
-    insufficient_evidence_count INTEGER DEFAULT 0,
-    
-    -- Ratios (cached for performance)
-    supportive_ratio NUMERIC(3,2) DEFAULT 0, -- supportive_count / times_applied
-    contradictory_ratio NUMERIC(3,2) DEFAULT 0,
-    
-    -- Quality metrics
-    avg_quality_when_applied NUMERIC(3,2),
-    avg_quality_delta NUMERIC(4,3), -- Average improvement/degradation
-    quality_variance NUMERIC(5,3),
-    
-    -- Task type coverage
-    task_types JSONB, -- {"task_type": count, ...}
-    node_count INTEGER, -- How many different nodes applied this
-    
-    -- Time tracking
-    first_applied TIMESTAMPTZ,
-    last_applied TIMESTAMPTZ,
-    last_evaluated TIMESTAMPTZ,
-    
-    -- Validation-related
-    current_validation_state TEXT CHECK (current_validation_state IN ('candidate', 'emerging', 'validated', 'disputed', 'rejected')),
-    validation_changed_at TIMESTAMPTZ,
-    
-    -- For Section 9 integration
-    confidence_score NUMERIC(3,2) CHECK (confidence_score >= 0 AND confidence_score <= 1),
-    evidence_count INTEGER DEFAULT 0, -- Total feedback records
-    
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    
-    UNIQUE(learning_id, learning_type)
-);
-
-CREATE INDEX idx_evidence_learning ON evidence_accumulation(learning_id, learning_type);
-CREATE INDEX idx_evidence_validation ON evidence_accumulation(current_validation_state);
-CREATE INDEX idx_evidence_confidence ON evidence_accumulation(confidence_score DESC);
-CREATE INDEX idx_evidence_task_types ON evidence_accumulation USING GIN(task_types);
+-- Evidence accumulation per learning item already created in Section 8
+-- Section 11 uses this table but does not recreate it
 
 -- Confidence adjustment history
 -- Track when and why confidence changes
@@ -145,9 +98,7 @@ CREATE TABLE confidence_adjustments (
     
     adjusted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     adjusted_by TEXT DEFAULT 'system',
-    metadata JSONB,
-    
-    FOREIGN KEY (learning_id) REFERENCES evidence_accumulation(learning_id)
+    metadata JSONB
 );
 
 CREATE INDEX idx_adjustments_learning ON confidence_adjustments(learning_id);
@@ -176,9 +127,7 @@ CREATE TABLE validation_transitions (
     
     transitioned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     transitioned_by TEXT DEFAULT 'system',
-    metadata JSONB,
-    
-    FOREIGN KEY (learning_id) REFERENCES evidence_accumulation(learning_id)
+    metadata JSONB
 );
 
 CREATE INDEX idx_transitions_learning ON validation_transitions(learning_id);
