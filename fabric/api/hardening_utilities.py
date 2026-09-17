@@ -337,7 +337,7 @@ def check_governance_health(conn: psycopg.Connection) -> dict:
         cur.execute(
             """
             SELECT COUNT(*) FROM governance_decisions
-            WHERE created_at > NOW() - INTERVAL '1 hour'
+            WHERE evaluated_at > NOW() - INTERVAL '1 hour'
             """
         )
         
