@@ -26,9 +26,16 @@ try:
     from feedback_endpoints import router as feedback_router
 except ImportError:
     feedback_router = None
+
+# Cross-node learning endpoints (Section 12)
+try:
+    from cross_node_endpoints import router as cross_node_router
+except ImportError:
+    cross_node_router = None
+
 from pydantic import BaseModel
 
-app = FastAPI(title='Learning Fabric API', version='0.7.0')
+app = FastAPI(title='Learning Fabric API', version='0.8.0')
 if orchestration_router:
     app.include_router(orchestration_router)
 if knowledge_graph_router:
@@ -39,6 +46,8 @@ if application_router:
     app.include_router(application_router)
 if feedback_router:
     app.include_router(feedback_router)
+if cross_node_router:
+    app.include_router(cross_node_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
