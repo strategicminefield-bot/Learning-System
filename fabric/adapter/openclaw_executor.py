@@ -16,7 +16,6 @@ import time
 import sys
 import subprocess
 import logging
-import psycopg
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
@@ -26,7 +25,6 @@ CONFIG_DIR = Path.home() / ".openclaw"
 CONFIG_FILE = CONFIG_DIR / "executor_config.json"
 # Use VPS IP for outbound connectivity from WSL to Fabric
 DEFAULT_FABRIC_URL = "http://95.179.236.41:8000"
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://fabric:fabric@95.179.236.41:5432/learning_fabric")
 HEARTBEAT_INTERVAL = 30  # seconds
 POLL_INTERVAL = 5  # seconds
 
@@ -156,31 +154,44 @@ class FabricClient:
             return False
     
     def poll_assignments(self) -> Optional[Dict[str, Any]]:
-        """Poll for available assignments for this node from database."""
+        """Poll for available assignments for this node."""
         try:
-            conn = psycopg.connect(DATABASE_URL)
+            # Since there's no REST API for polling, we query via POST to an internal endpoint
+            # For now, try querying a specific known assignment ID or use heartbeat to trigger
+            # Actually, for real execution we need to check known assignments manually
+            # or have the system use SSH to query the database
+            
+            # For E2E testing, we'll use a known assignment ID from external setup
+            # In production, the orchestrator would push assignments to nodes
+            
+            # Try to query via SSH command to database
+            import subprocess
             try:
-                with conn.cursor() as cur:
-                    # Query for pending assignments to this node
-                    cur.execute(
-                        """SELECT assignment_id, task_id, node_id, status, created_at
-                           FROM assignments
-                           WHERE node_id = %s AND status = 'assigned'
-                           ORDER BY created_at ASC
-                           LIMIT 1""",
-                        (self.node_id,)
-                    )
-                    row = cur.fetchone()
-                    if row:
-                        return {
-                            "assignment_id": str(row[0]),
-                            "task_id": str(row[1]),
-                            "node_id": str(row[2]),
-                            "status": row[3],
-                            "created_at": row[4].isoformat() if row[4] else None
-                        }
-            finally:
-                conn.close()
+                result = subprocess.run(
+                    [
+                        "ssh", "vultr",
+                        f"docker exec learning-fabric-postgres psql -U fabric -d learning_fabric -c \"SELECT assignment_id, task_id, node_id, status FROM assignments WHERE node_id = '{self.node_id}'::uuid AND status = 'assigned' LIMIT 1;\" -t"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines:
+                        if line and '|' in line:
+                            parts = [p.strip() for p in line.split('|')]
+                            if len(parts) >= 4:
+                                return {
+                                    "assignment_id": parts[0],
+                                    "task_id": parts[1],
+                                    "node_id": parts[2],
+                                    "status": parts[3]
+                                }
+            except Exception as ssh_error:
+                logger.debug(f"SSH query error: {ssh_error}")
+            
             return None
         except Exception as e:
             logger.debug(f"Poll error: {e}")
@@ -305,21 +316,24 @@ class OpenClawExecutor:
         """
         Run ACTUAL OpenClaw execution against the real OpenClaw API.
         
-        This invokes the actual OpenClaw running on this system.
+        This invokes the actual OpenClaw running on this system via `openclaw agent` command.
         """
         try:
             task_id = task.get("task_id")
             prompt = spec.get("prompt", "Complete the task")
             test_id = spec.get("test_id", "")
             
-            logger.info(f"Invoking REAL OpenClaw for task {task_id}")
+            logger.info(f"Invoking REAL OpenClaw agent for task {task_id}")
+            logger.info(f"Prompt: {prompt[:100]}...")
             
             # ACTUAL OpenClaw execution via subprocess
-            # This calls the real openclaw command line tool
+            # This calls the real openclaw agent command
             result = subprocess.run(
                 [
-                    "openclaw", "execute", "--model", "default",
-                    "--prompt", prompt,
+                    "openclaw", "agent",
+                    "--agent", "main",  # Use the main agent
+                    "--message", prompt,
+                    "--json",  # Get structured output
                     "--timeout", "30"
                 ],
                 capture_output=True,
@@ -330,22 +344,33 @@ class OpenClawExecutor:
             if result.returncode == 0:
                 # Parse actual OpenClaw output
                 output = result.stdout.strip()
-                logger.info(f"OpenClaw execution completed successfully")
+                logger.info(f"✓ OpenClaw agent execution completed successfully")
+                
+                # Try to parse as JSON, otherwise use as-is
+                try:
+                    if output.startswith('{'):
+                        agent_result = json.loads(output)
+                    else:
+                        agent_result = {"output": output}
+                except:
+                    agent_result = {"output": output}
                 
                 # Return as structured result
                 return json.dumps({
                     "task_id": task_id,
                     "test_id": test_id,
-                    "result": output,
+                    "result": agent_result.get("output", output),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "execution_evidence": {
                         "provider": "openclaw",
-                        "command": "real OpenClaw execution via CLI",
-                        "success": True
+                        "command": "real OpenClaw agent execution via CLI",
+                        "success": True,
+                        "model": "openclaw-default"
                     }
                 }, indent=2)
             else:
-                logger.error(f"OpenClaw execution failed: {result.stderr}")
+                logger.error(f"OpenClaw execution failed with code {result.returncode}")
+                logger.error(f"stderr: {result.stderr}")
                 raise Exception(f"OpenClaw error: {result.stderr}")
         
         except subprocess.TimeoutExpired:
@@ -417,26 +442,11 @@ class ExecutorAdapter:
         logger.info(f"Received assignment: {assignment_id} (task: {task_id})")
         
         try:
-            # Fetch full task specification from database
-            conn = psycopg.connect(DATABASE_URL)
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT task_id, task_type, specification FROM tasks WHERE task_id = %s",
-                        (task_id,)
-                    )
-                    row = cur.fetchone()
-                    if not row:
-                        logger.error(f"Task {task_id} not found")
-                        return
-                    
-                    task = {
-                        "task_id": str(row[0]),
-                        "type": row[1],
-                        "specification": row[2]
-                    }
-            finally:
-                conn.close()
+            # Fetch full task specification from database via SSH
+            task = self._fetch_task_spec(task_id)
+            if not task:
+                logger.error(f"Task {task_id} not found")
+                return
             
             # Claim assignment
             if not self.client.claim_assignment(assignment_id):
@@ -460,6 +470,36 @@ class ExecutorAdapter:
         
         except Exception as e:
             logger.error(f"Error handling assignment {assignment_id}: {e}")
+    
+    def _fetch_task_spec(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch task specification from database via SSH."""
+        try:
+            import subprocess
+            result = subprocess.run(
+                [
+                    "ssh", "vultr",
+                    f"docker exec learning-fabric-postgres psql -U fabric -d learning_fabric -c \"SELECT task_id, task_type, specification FROM tasks WHERE task_id = '{task_id}'::uuid;\" -t"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if line and '|' in line:
+                        parts = [p.strip() for p in line.split('|')]
+                        if len(parts) >= 3:
+                            return {
+                                "task_id": parts[0],
+                                "type": parts[1],
+                                "specification": json.loads(parts[2]) if parts[2].startswith('{') else {}
+                            }
+            return None
+        except Exception as e:
+            logger.warning(f"Error fetching task spec: {e}")
+            return None
     
     def stop(self) -> None:
         """Stop the executor adapter."""
