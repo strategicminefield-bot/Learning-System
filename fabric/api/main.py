@@ -57,6 +57,12 @@ try:
 except ImportError:
     experimentation_router = None
 
+# Validation/Promotion endpoints (Section 17)
+try:
+    from validation_endpoints import router as validation_router
+except ImportError:
+    validation_router = None
+
 from pydantic import BaseModel
 
 app = FastAPI(title='Learning Fabric API', version='1.0.0')
@@ -80,6 +86,8 @@ if orchestration_v15_router:
     app.include_router(orchestration_v15_router)
 if experimentation_router:
     app.include_router(experimentation_router)
+if validation_router:
+    app.include_router(validation_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
