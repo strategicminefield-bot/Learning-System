@@ -55,7 +55,7 @@ class ConnectionPool:
         # Create new if under limit
         if len(self.connections) + len(self.in_use) < self.max_size:
             try:
-                conn = psycopg.connect(self.db_url, timeout=self.timeout_seconds)
+                conn = psycopg.connect(self.db_url, connect_timeout=self.timeout_seconds)
                 self.in_use.add(id(conn))
                 return conn
             except PostgresError as e:

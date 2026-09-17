@@ -48,7 +48,7 @@ def health_ready():
     
     # Check database
     try:
-        conn = psycopg.connect(DATABASE_URL, timeout=5)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=5)
         db_health = check_db_health(conn)
         
         if db_health['status'] != 'healthy':
@@ -60,7 +60,7 @@ def health_ready():
     
     # Check governance
     try:
-        conn = psycopg.connect(DATABASE_URL, timeout=5)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=5)
         gov_health = check_governance_health(conn)
         
         if gov_health['status'] != 'operational':
@@ -104,7 +104,7 @@ def health_status():
     
     # Database status
     try:
-        conn = psycopg.connect(DATABASE_URL, timeout=5)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=5)
         db_health = check_db_health(conn)
         status["components"]["database"] = db_health
         conn.close()
@@ -113,7 +113,7 @@ def health_status():
     
     # Governance status
     try:
-        conn = psycopg.connect(DATABASE_URL, timeout=5)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=5)
         gov_health = check_governance_health(conn)
         status["components"]["governance"] = gov_health
         conn.close()
@@ -122,7 +122,7 @@ def health_status():
     
     # Configuration status
     try:
-        conn = psycopg.connect(DATABASE_URL, timeout=5)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=5)
         cur = conn.cursor()
         cur.execute("""
             SELECT COUNT(*) FROM production_config WHERE required_at_startup = true
@@ -150,7 +150,7 @@ def record_deployment(
     Record deployment event for troubleshooting.
     """
     try:
-        conn = psycopg.connect(DATABASE_URL, timeout=5)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=5)
         cur = conn.cursor()
         
         cur.execute(
@@ -190,7 +190,7 @@ def record_event(
     Record application event for structured logging.
     """
     try:
-        conn = psycopg.connect(DATABASE_URL, timeout=5)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=5)
         cur = conn.cursor()
         
         cur.execute(
