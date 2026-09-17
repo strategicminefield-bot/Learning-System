@@ -227,6 +227,22 @@ def claim_assignment(assignment_id: str, payload: dict):
                 (node_uuid,),
             )
             
+            # Auto-create first attempt on claim
+            attempt_id = uuid.uuid4()
+            cur.execute(
+                "INSERT INTO attempts "
+                "(attempt_id, task_id, assignment_id, node_id, attempt_number, method, status, started_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,'running',now())",
+                (
+                    attempt_id, assignment[0], assignment_uuid,
+                    node_uuid, 1, Jsonb({})
+                ),
+            )
+            cur.execute(
+                "UPDATE assignments SET attempt_count=1 WHERE assignment_id=%s",
+                (assignment_uuid,),
+            )
+            
             # Record claim event
             record_event(
                 conn,
@@ -235,14 +251,68 @@ def claim_assignment(assignment_id: str, payload: dict):
                 entity_id=assignment_uuid,
                 node_id=node_uuid,
                 previous_state={"status": "assigned"},
-                current_state={"status": "claimed"},
-                metadata={"action": "assignment_claimed"}
+                current_state={"status": "claimed", "attempt_id": str(attempt_id)},
+                metadata={"action": "assignment_claimed", "attempt_created": True}
             )
 
         conn.commit()
 
-    return {"status": "claimed", "assignment_id": str(assignment_uuid)}
+    return {"status": "claimed", "assignment_id": str(assignment_uuid), "attempt_id": str(attempt_id)}
 
+
+@router.get("/assignments/{assignment_id}")
+def get_assignment(assignment_id: str):
+    """Get assignment details."""
+    assignment_uuid = as_uuid(assignment_id, "assignment_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT assignment_id, task_id, node_id, status, attempt_count,
+                       claimed_at, completed_at, created_at
+                FROM assignments WHERE assignment_id=%s
+                """,
+                (assignment_uuid,)
+            )
+            row = cur.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="Assignment not found")
+            
+            assign_id, task_id, node_id, status, attempt_count, claimed_at, completed_at, created_at = row
+            
+            # Get attempts for this assignment
+            cur.execute(
+                """
+                SELECT attempt_id, attempt_number, status, started_at, completed_at
+                FROM attempts WHERE assignment_id=%s ORDER BY attempt_number
+                """,
+                (assignment_uuid,)
+            )
+            
+            attempts = []
+            for attempt_row in cur.fetchall():
+                attempt_id, attempt_num, attempt_status, attempt_started, attempt_completed = attempt_row
+                attempts.append({
+                    "attempt_id": str(attempt_id),
+                    "attempt_number": attempt_num,
+                    "status": attempt_status,
+                    "started_at": attempt_started.isoformat() if attempt_started else None,
+                    "completed_at": attempt_completed.isoformat() if attempt_completed else None
+                })
+    
+    return {
+        "assignment_id": str(assign_id),
+        "task_id": str(task_id),
+        "node_id": str(node_id),
+        "status": status,
+        "attempt_count": attempt_count,
+        "attempts": attempts,
+        "claimed_at": claimed_at.isoformat() if claimed_at else None,
+        "completed_at": completed_at.isoformat() if completed_at else None,
+        "created_at": created_at.isoformat()
+    }
 
 @router.post("/assignments/{assignment_id}/attempts")
 def create_attempt(assignment_id: str, payload: dict):
@@ -1588,6 +1658,78 @@ def record_task_outcome(task_id: str, payload: dict, node_id: str = Query(...)):
                     outcome_status, execution_time, execution_time or 0, quality_score
                 )
             )
+            
+            # PATTERN MATCHING: Evaluate against existing patterns
+            matched_patterns = []
+            cur.execute(
+                "SELECT pattern_id, pattern_rule FROM result_patterns WHERE task_type=%s",
+                (task_type,)
+            )
+            for pattern_row in cur.fetchall():
+                pattern_id, pattern_rule = pattern_row
+                if isinstance(pattern_rule, str):
+                    pattern_rule = json.loads(pattern_rule)
+                
+                # Match: quality_score >= threshold AND time within limit
+                quality_threshold = pattern_rule.get("quality_threshold", 0.0)
+                time_limit = pattern_rule.get("time_limit", float('inf'))
+                
+                if (quality_score >= quality_threshold and 
+                    (execution_time is None or execution_time <= time_limit)):
+                    matched_patterns.append(pattern_id)
+            
+            # Update outcome with matched patterns
+            if matched_patterns:
+                cur.execute(
+                    "UPDATE task_outcomes SET patterns_matched=%s WHERE outcome_id=%s",
+                    (matched_patterns, outcome_id)
+                )
+            
+            # AUTO-GENERATE INSIGHTS from learning profile
+            cur.execute(
+                "SELECT proficiency_score, tasks_completed, success_rate, avg_time_seconds FROM worker_learning WHERE node_id=%s AND task_type=%s AND skill_area='general'",
+                (node_uuid, task_type)
+            )
+            learning_row = cur.fetchone()
+            if learning_row:
+                prof_score, tasks_done, success_rate, avg_time = learning_row
+                
+                # Strength insight
+                if prof_score and prof_score > 0.85 and tasks_done and tasks_done >= 3:
+                    cur.execute(
+                        "INSERT INTO performance_insights (insight_id, node_id, task_type, insight_type, description, confidence_score, evidence_count, actionable, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, now())",
+                        (
+                            uuid.uuid4(), node_uuid, task_type, "strength",
+                            f"High proficiency in {task_type}: {prof_score:.2%}",
+                            prof_score, tasks_done
+                        )
+                    )
+                
+                # Weakness insight
+                if success_rate and success_rate < 0.6 and tasks_done and tasks_done >= 3:
+                    cur.execute(
+                        "INSERT INTO performance_insights (insight_id, node_id, task_type, insight_type, description, confidence_score, evidence_count, actionable, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, now())",
+                        (
+                            uuid.uuid4(), node_uuid, task_type, "weakness",
+                            f"Low success rate in {task_type}: {success_rate:.2%}",
+                            1.0 - success_rate, tasks_done
+                        )
+                    )
+                
+                # Opportunity insight
+                if avg_time and avg_time > 120 and tasks_done and tasks_done >= 2:
+                    cur.execute(
+                        "INSERT INTO performance_insights (insight_id, node_id, task_type, insight_type, description, recommendation, confidence_score, evidence_count, actionable, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, now())",
+                        (
+                            uuid.uuid4(), node_uuid, task_type, "improvement_opportunity",
+                            f"Execution time optimization opportunity for {task_type}",
+                            Jsonb({"action": "optimize_speed", "current_avg_seconds": avg_time}),
+                            0.75, tasks_done
+                        )
+                    )
         
         conn.commit()
     
