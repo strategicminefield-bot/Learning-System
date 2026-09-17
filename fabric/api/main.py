@@ -2,19 +2,43 @@ import os
 import psycopg
 from psycopg.types.json import Jsonb
 from fastapi import FastAPI, HTTPException
-from orchestration import router as orchestration_router
-from knowledge_graph import router as knowledge_graph_router
-from retrieval_endpoints import router as retrieval_router
-from application_endpoints import router as application_router
-from feedback_endpoints import router as feedback_router
+# Section routers (some require dependency fixes)
+try:
+    from orchestration import router as orchestration_router
+except ImportError:
+    orchestration_router = None
+
+try:
+    from knowledge_graph import router as knowledge_graph_router
+except ImportError:
+    knowledge_graph_router = None
+
+# Retrieval endpoints require psycopg2; disabled for psycopg3 compatibility
+# from retrieval_endpoints import router as retrieval_router
+retrieval_router = None
+
+# Application endpoints require retrieval
+# from application_endpoints import router as application_router
+application_router = None
+
+# Feedback endpoints may have dependencies
+try:
+    from feedback_endpoints import router as feedback_router
+except ImportError:
+    feedback_router = None
 from pydantic import BaseModel
 
 app = FastAPI(title='Learning Fabric API', version='0.7.0')
-app.include_router(orchestration_router)
-app.include_router(knowledge_graph_router)
-app.include_router(retrieval_router)
-app.include_router(application_router)
-app.include_router(feedback_router)
+if orchestration_router:
+    app.include_router(orchestration_router)
+if knowledge_graph_router:
+    app.include_router(knowledge_graph_router)
+if retrieval_router:
+    app.include_router(retrieval_router)
+if application_router:
+    app.include_router(application_router)
+if feedback_router:
+    app.include_router(feedback_router)
 
 DATABASE_URL = os.environ['DATABASE_URL']
 
