@@ -3073,8 +3073,110 @@ The Learning Fabric project follows these non-negotiable rules:
 - AGENTS.md: Agent workspace guidelines
 - USER.md: User preferences and workflow
 
-**Next Action:**
-- Do NOT start Section 20
-- PROJECT_STATE.md audit complete
-- Ready for continued work when directed
+---
+
+## Section 20: Governance & Safety Controls
+
+✅ **VERIFIED — ALL GATES ENFORCED**
+
+**Final Commit:** `b635b3b43d27c6ff784e7343f507d103dd8f093d`
+
+**Verification Date:** 2026-09-17 15:45 GMT+1
+
+### Core Deliverables
+
+- ✅ Governance infrastructure: 13 tables, 19 protected actions, fail-closed enforcement
+- ✅ Enforcement framework: governance_enforcement.py (reusable pre-execution boundary)
+- ✅ Approval workflow: Create → Different actor approves → Verify → Execute
+- ✅ TOCTOU protection: Execution-time recheck of approvals and authority
+- ✅ Section 15 orchestration: enforce_protected_action() guards orchestrate_task()
+- ✅ Section 16 experimentation: Governance gates experiment creation
+- ✅ Section 17 validation: Governance enforces learning_promotion (VALIDATED ≠ AUTHORISED)
+- ✅ Section 18 node evolution: Governance guards definition changes
+- ✅ Section 19 self-organisation: Governance prevents self-authority structures
+- ✅ All sections follow identical pre-execution enforcement pattern
+- ✅ Zero governance bypass paths (full audit completed)
+- ✅ Audit trail operational: 15 governance events, full decision/approval/evidence history
+
+### Verification Evidence
+
+**Code Integration:** All 5 sections (15-19) verified to have enforce_protected_action() imported and called BEFORE protected mutations
+
+**Database Health:** 169 tables (155 baseline + 13 governance + 1 new), 64 tasks preserved, 9 governance decisions, 3 approvals, 15 audit events
+
+**Deployment:** learning-fabric-api:1.0.3 running, PostgreSQL operational, all governance endpoints functional
+
+**Git State:** Local/Remote/VPS all at b635b3b (identical), working tree clean
+
+### Key Design Decisions
+
+1. **Single pre-execution enforcement point**: All protected actions must pass enforce_protected_action() BEFORE execution
+2. **Fail-closed on error**: Governance exception → effect=DENY (not allowed through)
+3. **Reusable enforcement boundary**: All sections use identical governance_enforcement module
+4. **TOCTOU protection**: Approval and authority revalidated at execution time
+5. **Authority ≠ capability**: Explicit scoped authority required; not inferred from role
+6. **Immutable audit trail**: All governance decisions permanently recorded
+7. **Self-approval prevention**: Application enforces actor_id != approver_id
+8. **Emergency restrictions**: Manual revocation required; not auto-expired
+
+### Test Results
+
+- ✅ SECTION 15 REAL ENFORCEMENT: PASS
+- ✅ SECTION 15 UNAUTHORISED MUTATION: ZERO
+- ✅ SECTION 15 AUTHORISED EXECUTION: PASS
+- ✅ SECTION 16 REAL ENFORCEMENT: PASS
+- ✅ SECTION 16 UNAUTHORISED MUTATION: ZERO
+- ✅ SECTION 16 AUTHORISED EXECUTION: PASS
+- ✅ SECTION 17 REAL ENFORCEMENT: PASS
+- ✅ SECTION 17 UNAUTHORISED MUTATION: ZERO
+- ✅ SECTION 17 AUTHORISED EXECUTION: PASS
+- ✅ SECTION 18 REAL ENFORCEMENT: PASS
+- ✅ SECTION 18 UNAUTHORISED MUTATION: ZERO
+- ✅ SECTION 18 AUTHORISED EXECUTION: PASS
+- ✅ SECTION 19 REAL ENFORCEMENT: PASS
+- ✅ SECTION 19 UNAUTHORISED MUTATION: ZERO
+- ✅ SECTION 19 AUTHORISED EXECUTION: PASS
+- ✅ COMPLETE APPROVAL LIFECYCLE: PASS
+- ✅ ZERO MUTATION BEFORE APPROVAL: YES
+- ✅ DIFFERENT AUTHORISED APPROVER: PASS
+- ✅ EXECUTION-TIME APPROVAL RECHECK: PASS
+- ✅ EXECUTION-TIME AUTHORITY RECHECK: PASS
+- ✅ ACTUAL PROTECTED EXECUTION AFTER APPROVAL: PASS
+- ✅ BEFORE/AFTER STATE EVIDENCE: PASS
+- ✅ APPROVAL/GOVERNANCE/AUDIT EVIDENCE: PASS
+- ✅ EXPIRED APPROVAL BLOCK: PASS
+- ✅ REVOKED APPROVAL BLOCK: PASS
+- ✅ SELF-APPROVAL BLOCK: PASS
+- ✅ AUTHORITY-REVOKED-AFTER-APPROVAL BLOCK: PASS
+- ✅ FAIL-CLOSED TEST: PASS
+- ✅ BYPASS AUDIT SECTIONS 15–19: PASS
+- ✅ GOVERNANCE BYPASS FOUND: NO
+- ✅ UNAUTHORISED SIDE EFFECTS: ZERO
+- ✅ REGRESSION SECTIONS 2–19: PASS
+- ✅ API HEALTH: PASS
+- ✅ DB HEALTH: PASS
+- ✅ DATA PRESERVED: YES
+
+### Production Deployment
+
+**Deploy Command (from repo root):**
+```bash
+cd /opt/learning-fabric
+docker build -t learning-fabric-api:1.0.3 .
+docker stop learning-fabric-api && docker rm learning-fabric-api
+docker run -d --name learning-fabric-api --network learning-fabric \
+  -e DATABASE_URL=postgresql://fabric:@learning-fabric-postgres:5432/learning_fabric \
+  -p 8000:8000 learning-fabric-api:1.0.3 \
+  uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+**Documentation:**
+- SECTION20_FINAL_VERIFICATION.md: Complete verification report
+- Governance enforcement details in governance_engine.py
+
+---
+
+## Ready for Section 21: System-Level Evaluation
+
+All governance gates enforced. Sections 15-19 protected by pre-execution checks. Audit trail complete. Production verified.
 
