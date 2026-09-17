@@ -78,34 +78,34 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 15 — Adaptive Orchestration ✅ VERIFIED
+SECTION 16 — Experimentation Layer ✅ VERIFIED
 
 ### Production Status: VERIFIED
-- **Sections 2–15:** All production verified
-- **Final Implementation Commit:** 5679ec4 (Update PROJECT_STATE.md: Section 15 production verified)
-- **Local Git HEAD:** 5679ec4 (MATCH: YES)
-- **VPS Git HEAD:** 5679ec4 (MATCH: YES)
+- **Sections 2–16:** All production verified
+- **Final Implementation Commit:** db6ec08 (Section 16: Experimentation Layer - production verified with E2E tests)
+- **Local Git HEAD:** db6ec08 (MATCH: YES)
+- **VPS Git HEAD:** db6ec08 (MATCH: YES)
 - **API Version:** 1.0.0 (healthy)
-- **Migration 015:** Applied successfully to production
-- **Total Schema Tables:** 101 (92 baseline + 9 Section 15)
+- **Migration 016:** Applied successfully to production
+- **Total Schema Tables:** 115 (101 baseline + 11 experiment tables + 3 core observation)
 - **DB Health:** PASS ✓
-- **Production E2E:** PASS ✓
-- **Data Preserved:** YES ✓ (52 tasks, 50+ assignments, 96+ outcomes)
+- **Production E2E:** PASS ✓ (9/9 tests passing)
+- **Data Preserved:** YES ✓ (64 tasks, 62 assignments, experiments isolated)
 
-### Section 15 Capabilities Verified
-- Evidence-based orchestration decision-making: ✓
-- Learned strategy selection (§14 integrated): ✓
-- Worker allocation (§4 integrated): ✓
-- Controlled adaptation within architecture: ✓
-- Explainable decisions with rationale: ✓
-- Fallback/default paths when insufficient evidence: ✓
-- Failure→repair→success chains: ✓
-- Replanning with immutable history: ✓
-- Outcome feedback to §14 strategy learning: ✓
-- Full integration with §2-14: ✓
+### Section 16 Capabilities Verified
+- Experiment creation with control/treatment arms: ✓
+- Deterministic task assignment via SHA256 hashing: ✓
+- Observation recording from orchestration attempts: ✓
+- Analysis and conclusion generation (neutral, inconclusive): ✓
+- Experiment isolation (non-enrolled tasks protected): ✓
+- Autonomous initiation configurable (not automatic): ✓
+- Status transitions immutably recorded: ✓
+- No silent promotion to production: ✓
+- Provider-agnostic architecture maintained: ✓
+- Full integration with §2-15: ✓
 
 ### Next Section
-SECTION 16 — Experimentation Layer (NOT YET STARTED)
+SECTION 17 — Promotion Decision Layer (READY FOR DESIGN)
 
 ### External AI Node Interface Requirement
 **CRITICAL ARCHITECTURE REQUIREMENT:** 
