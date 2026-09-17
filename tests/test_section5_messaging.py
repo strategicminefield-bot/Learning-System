@@ -103,8 +103,7 @@ def test_send_message(data):
     """Test sending messages between workers."""
     print("  • Testing message sending...")
     
-    resp = api_request("POST", "/messages", {
-        "sender_node_id": data["node1_id"],
+    resp = api_request("POST", f"/messages/{data['node1_id']}", {
         "recipient_node_id": data["node2_id"],
         "message_type": "task_update",
         "subject": "Progress update",
@@ -151,8 +150,7 @@ def test_subscriptions(data):
     print("  • Testing subscriptions...")
     
     # Subscribe to topic
-    resp = api_request("POST", "/subscriptions", {
-        "node_id": data["node1_id"],
+    resp = api_request("POST", f"/subscriptions/{data['node1_id']}", {
         "topic": "task_updates",
         "filter_criteria": {"task_type": "test_task"}
     })
@@ -235,8 +233,7 @@ def test_messaging_workflow(data):
         assignment_id = assign_resp["assignment_id"]
         
         # Subscribe to task updates
-        api_request("POST", "/subscriptions", {
-            "node_id": worker_node_id_str,
+        api_request("POST", f"/subscriptions/{worker_node_id_str}", {
             "topic": "task_updates"
         })
         
@@ -251,8 +248,7 @@ def test_messaging_workflow(data):
         })
         
         # Send progress message
-        msg_resp = api_request("POST", "/messages", {
-            "sender_node_id": worker_node_id_str,
+        msg_resp = api_request("POST", f"/messages/{worker_node_id_str}", {
             "task_id": task_id_str,
             "message_type": "progress",
             "content": {"progress": 75}

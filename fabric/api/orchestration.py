@@ -1142,7 +1142,7 @@ class SubscriptionIn(BaseModel):
     topic: str
     filter_criteria: dict | None = None
 
-@router.post("/messages")
+@router.post("/messages/{sender_node_id}")
 def send_message(sender_node_id: str, payload: MessageIn):
     """Send a message from one worker to another or broadcast to task."""
     sender_uuid = as_uuid(sender_node_id, "sender_node_id")
@@ -1276,7 +1276,7 @@ def mark_message_read(message_id: str):
     
     return {"status": "read", "message_id": str(message_uuid)}
 
-@router.post("/subscriptions")
+@router.post("/subscriptions/{node_id}")
 def subscribe_to_topic(node_id: str, payload: SubscriptionIn):
     """Subscribe a worker to a topic for notifications."""
     node_uuid = as_uuid(node_id, "node_id")
