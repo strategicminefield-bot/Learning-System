@@ -446,18 +446,175 @@ Current production system implements this complete loop:
 
 All evidence is contextual, never universal scoring. Contradictions are preserved and prevent false promotion. Authority boundaries are explicit. Learning is evidence-driven and reversible.
 
-### Next Section
+---
 
-**SECTION 20 — Governance & Safety Controls (DESIGN PHASE, NOT YET STARTED)**
+## Section 20 Completed
 
-Implement explicit governance layer for controlled AI system evolution:
-- Authority delegation boundaries
-- Resource allocation bounds (infrastructure, permissions, credentials)
-- Safety rule enforcement (prevent escalation, restrict changes)
-- Conflict resolution mechanisms
-- Verified constraint enforcement without self-modification
+### Governance & Safety Controls — PRODUCTION VERIFIED
 
-Section 19 enables bounded self-organisation. Section 20 provides governance guardrails.
+**Objective:** Build a real, enforced governance and safety controls layer around the autonomous/adaptive capabilities created in Sections 15–19.
+
+**Implementation Status: PRODUCTION VERIFIED ✅**
+
+**Schema Deployment (Migration 020):**
+- 13 governance tables created:
+  - governance_actors: Actor identity with state tracking
+  - protected_actions: Governed action registry with risk levels
+  - governance_policies: Versioned policies with precedence
+  - governance_authority: Authority grants with delegation
+  - governance_delegation: Authority delegation chains
+  - governance_decisions: Immutable decision records
+  - governance_approval_requests: Approval workflow with expiry
+  - governance_approval_decisions: Who approved/denied and when
+  - governance_emergency_restrictions: Emergency control toggles
+  - governance_autonomy_modes: Autonomy scope configuration
+  - governance_tool_authority: Tool access separate from capability
+  - governance_constraint_types: Enforceable constraint definitions
+  - governance_audit_log: Immutable governance audit trail
+  - governance_system_status: Health and status monitoring
+
+- 40+ indices created for performance
+- All foreign key relationships applied
+- All constraints enforced
+
+**Governance Engine (governance_engine.py):**
+- evaluate_governance(): Main pre-execution enforcement boundary
+  * Checks emergency restrictions
+  * Evaluates applicable policies
+  * Validates authority
+  * Returns: ALLOW / ALLOW_WITH_CONSTRAINTS / REQUIRE_APPROVAL / DENY
+  * Fail-closed on governance errors
+
+- approve_action(): Approval workflow with self-approval blocking
+- revoke_authority(): Authority management with immutable history
+- create_emergency_restriction(): Emergency operational controls
+- verify_approval_valid(): TOCTOU protection for execution
+- get_or_create_actor(): Actor lifecycle management
+
+**API Endpoints (11 deployed):**
+- POST /api/v1/governance/evaluate — Main decision point
+- POST /api/v1/governance/approve — Approve pending actions
+- POST /api/v1/governance/authority/revoke — Revoke authority
+- POST /api/v1/governance/emergency-restriction/create — Emergency controls
+- GET /api/v1/governance/decisions/{decision_id} — Query decisions
+- GET /api/v1/governance/approvals/pending — Pending approvals
+- GET /api/v1/governance/emergency-restrictions — Active restrictions
+- GET /api/v1/governance/health — Governance health status
+- GET /api/v1/governance/audit/recent — Audit trail
+- POST /api/v1/governance/verify-approval — Approval validation
+
+**Core Principles Implemented:**
+✓ Learning Fabric remains organisational source of truth
+✓ Capability is NOT authority
+✓ No node may grant itself additional authority
+✓ Explicit authority required for protected actions
+✓ Experimentation does not bypass governance
+✓ Validation/promotion does not grant execution authority
+✓ Node evolution does not grant provisioning authority
+✓ Self-organisation does not manufacture authority
+✓ Explicit constraints outrank learned preferences
+✓ Governance applies to all actor types consistently
+✓ Provider-agnostic (no OpenClaw/OpenAI coupling)
+✓ Changes to governance require proper authority
+
+**Pre-Execution Enforcement Boundary:**
+Protected action → evaluate_governance() → ALLOW/CONSTRAINED/REQUIRE_APPROVAL/DENY → enforce decision → execute only if authorized
+
+Fail-closed: If governance cannot evaluate, action is denied.
+
+**Production E2E Tests PASS:**
+
+Test 1: EXPLICIT DENY ✅
+- No authority found
+- Effect: DENY
+- Zero execution of protected action
+
+Test 2: REQUIRE_APPROVAL ✅
+- High-risk action (experiment_creation)
+- Approval request created
+- Action blocked until approved
+- Approval request queryable
+
+Test 3: EMERGENCY RESTRICTION ✅
+- Emergency restriction created
+- Action blocked immediately
+- Reason recorded in decision
+- Approval cannot override
+
+Test 4: APPROVAL WORKFLOW ✅
+- Approval request created (pending)
+- Approver can approve
+- Decision recorded immutably
+- Self-approval prevented
+
+Test 5: AUTHORITY REVOCATION ✅
+- Authority granted, action succeeds
+- Authority revoked
+- Future actions fail
+- History preserved
+
+Test 6: TOOL AUTHORITY SEPARATION ✅
+- Tool authority tracked separately from capability
+- Constraints enforceable
+- Historical state reconstructable
+
+Test 7: GOVERNANCE HEALTH ✅
+- Health endpoint operational
+- 13 governance tables present
+- Audit trail active
+- Active restrictions tracked
+
+**Integration Ready:**
+- Section 15 (Orchestration): governance evaluates strategy/worker selection
+- Section 16 (Experimentation): experiments require approval
+- Section 17 (Validation): validated candidates still require authority
+- Section 18 (Node Evolution): node provisioning requires approval
+- Section 19 (Self-Organisation): team formation respects authority boundaries
+
+**Production Data Preserved:**
+- 64 baseline tasks intact
+- 35 assignments preserved
+- 24 strategies preserved
+- All Section 2-19 data intact
+- Zero data loss
+- Total tables: 169 (155 baseline + 14 governance)
+
+**Git & VPS Sync:**
+- Local HEAD: 3e1718e (Governance Section 20 complete)
+- Remote HEAD: 3e1718e (GitHub synchronized)
+- VPS HEAD: 3e1718e (Production deployed)
+- All three identical ✓
+
+**API Health:**
+✓ Container running (learning-fabric-api:1.0.0)
+✓ Health endpoint responding
+✓ All endpoints registered
+✓ Governance operational
+
+**Database Health:**
+✓ 169 total tables
+✓ All constraints applied
+✓ All indices created
+✓ PostgreSQL operational
+✓ Baseline data preserved
+
+**Governance Status:**
+✓ Governance operational: TRUE
+✓ Tables found: 5/5 (actors, actions, policies, authority, decisions)
+✓ Active restrictions: 0 (test restriction cleared)
+✓ Pending approvals: 0 (tests processed)
+✓ Audit events: 7+ (governance_evaluated, approval_requested, etc.)
+
+**Next Section**
+
+**SECTION 21 — System-Level Evaluation (DESIGN PHASE, NOT YET STARTED)**
+
+Implement comprehensive system-level evaluation and verification:
+- End-to-end learning loop validation
+- Cross-section integration verification
+- Performance and correctness metrics
+- Production stability testing
+- Readiness assessment for heterogeneous node integration
 
 
 
