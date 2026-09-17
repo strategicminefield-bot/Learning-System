@@ -78,20 +78,20 @@ GitHub remains the source of truth.
 
 ## Current Section
 
-SECTION 5 — Task Messaging and Inter-Worker Communication API
+SECTION 6 — Learning and Pattern Analysis System
 
 Objective:
 
-Implement inter-worker communication and task messaging system for coordinated distributed workflows.
+Implement learning and pattern analysis system to discover insights and improve worker performance from task outcomes.
 
 Required capabilities:
 
-- Direct worker-to-worker messaging
-- Task-scoped messaging and broadcast
-- Topic-based subscription system
-- Task notification delivery
-- Message status tracking
-- Task detail queries and history
+- Task outcome recording and analysis
+- Worker learning profile development
+- Pattern detection and learning
+- Knowledge artifact storage and retrieval
+- Performance insights and recommendations
+- Quality tracking and analytics
 
 ---
 
@@ -506,7 +506,194 @@ The test assignment/task/node are currently part of the live test state.
 
 ---
 
-## Section 5 Completed
+## Section 6 Completed
+
+### Learning and Pattern Analysis System
+
+Migration: `migrations/006_learning.sql`
+
+New tables:
+
+#### result_patterns
+Discovered patterns from task outcomes:
+- `pattern_id`: UUID primary key
+- `task_type`: Task type pattern applies to
+- `pattern_name`: Human-readable pattern name
+- `pattern_rule`: JSONB pattern matching rules
+- `success_rate`: Success rate (0-1)
+- `occurrence_count`: Number of observations
+- `first_seen`, `last_seen`: Temporal tracking
+
+#### worker_learning
+Worker skill development profiles:
+- `learning_id`: UUID primary key
+- `node_id`: Worker UUID
+- `task_type`: Task type focus
+- `skill_area`: Skill classification
+- `proficiency_score`: Skill level (0-1)
+- `tasks_completed`: Task count
+- `success_rate`: Success percentage
+- `avg_time_seconds`: Average execution time
+- `quality_score`: Quality metric (0-1)
+- `last_updated`: Profile update timestamp
+- Unique constraint on (node_id, task_type, skill_area)
+
+#### task_outcomes
+Task execution outcomes for learning:
+- `outcome_id`: UUID primary key
+- `task_id`: Task UUID
+- `assignment_id`: Assignment UUID (optional)
+- `node_id`: Worker UUID
+- `outcome_status`: success, failure, partial
+- `quality_score`: Quality metric
+- `execution_time_seconds`: Duration
+- `result_summary`: JSONB result data
+- `learning_points`: JSONB lessons learned
+- `patterns_matched`: Array of matched pattern IDs
+
+#### knowledge_artifacts
+Reusable knowledge from successful outcomes:
+- `artifact_id`: UUID primary key
+- `task_type`: Task type context
+- `node_id`: Creator worker UUID (optional)
+- `artifact_type`: template, solution, approach, etc.
+- `content`: JSONB artifact content
+- `quality_score`: Quality metric
+- `usage_count`: Usage counter
+- `effectiveness_rating`: Effectiveness metric
+
+#### performance_insights
+Generated recommendations and insights:
+- `insight_id`: UUID primary key
+- `node_id`: Worker UUID (optional)
+- `task_type`: Task type focus
+- `insight_type`: strength, weakness, opportunity, etc.
+- `description`: Human-readable description
+- `recommendation`: JSONB actionable recommendations
+- `confidence_score`: Confidence metric (0-1)
+- `evidence_count`: Supporting observations
+- `actionable`: Boolean actionability flag
+
+### Learning Endpoints
+
+#### POST /outcomes/{task_id}
+Record task outcome for learning.
+
+Payload:
+```json
+{
+  "status": "success|failure|partial",
+  "quality_score": 0.95,
+  "execution_time_seconds": 30,
+  "result_summary": {"...results..."},
+  "learning_points": ["point1", "point2"]
+}
+```
+
+Query: `node_id` (worker UUID)
+
+#### GET /outcomes/{node_id}
+Get task outcomes for worker.
+
+Query: `task_type` (optional), `limit` (1-1000, default 100)
+
+Returns: Array of outcomes with status, quality, execution time, results
+
+#### GET /learning/{node_id}
+Get worker learning profile with skill development.
+
+Returns: Skills array with proficiency, tasks_completed, success_rate, quality_score
+
+#### GET /patterns
+Discover patterns from task results.
+
+Query: `task_type` (optional), `min_success_rate` (0-1, default 0)
+
+Returns: Array of patterns with success_rate, occurrence_count, rules
+
+#### POST /patterns
+Create new pattern from observations.
+
+Payload:
+```json
+{
+  "task_type": "analysis_task",
+  "pattern_name": "high_quality_analysis",
+  "pattern_rule": {"quality_threshold": 0.9},
+  "success_rate": 0.95,
+  "occurrence_count": 5
+}
+```
+
+#### GET /insights/{node_id}
+Get performance insights for worker.
+
+Query: `actionable_only` (default true)
+
+Returns: Array of insights with type, description, recommendations, confidence
+
+#### POST /insights/{node_id}
+Create performance insight or recommendation.
+
+Payload:
+```json
+{
+  "insight_type": "strength|weakness|opportunity",
+  "description": "Excellent consistency",
+  "recommendation": {"focus_area": "optimization"},
+  "confidence_score": 0.92,
+  "task_type": "analysis_task",
+  "evidence_count": 5,
+  "actionable": true
+}
+```
+
+#### GET /knowledge
+Retrieve knowledge artifacts from successful tasks.
+
+Query: `artifact_type` (optional), `task_type` (optional), `limit` (1-1000)
+
+Returns: Array of artifacts with quality_score, usage_count, content
+
+#### POST /knowledge
+Store knowledge artifact from outcome.
+
+Payload:
+```json
+{
+  "task_type": "analysis_task",
+  "artifact_type": "template",
+  "content": {"steps": [...], "expected_output": "..."},
+  "quality_score": 0.9,
+  "node_id": "worker-uuid (optional)"
+}
+```
+
+### Learning Features
+
+- **Outcome tracking**: Record task results with quality metrics
+- **Skill profiles**: Track proficiency development by task type
+- **Pattern recognition**: Discover recurring success patterns
+- **Knowledge capture**: Store solutions and templates for reuse
+- **Performance insights**: Generate recommendations from data
+- **Quality analytics**: Aggregate and trend quality metrics
+- **Execution tracking**: Monitor and optimize execution time
+- **Success rate analysis**: Calculate and track success percentages
+
+### Tests
+
+Test script: `tests/test_section6_learning.py`
+
+Verifies:
+✓ Task outcome recording
+✓ Outcome retrieval and filtering
+✓ Worker learning profile development
+✓ Pattern creation and discovery
+✓ Performance insights generation
+✓ Knowledge artifact storage and retrieval
+✓ Complete learning workflow with lifecycle
+
+## Section 5 Completed (Previous)
 
 ### Task Messaging System
 

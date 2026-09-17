@@ -1507,3 +1507,450 @@ def get_task_notifications(task_id: str, node_id: str | None = Query(None), limi
         "task_id": str(task_uuid),
         "node_filter": str(node_uuid) if node_uuid else None
     }
+
+
+# Learning and Pattern Analysis Endpoints (Section 6)
+
+@router.post("/outcomes/{task_id}")
+def record_task_outcome(task_id: str, node_id: str, payload: dict = {}):
+    """Record task outcome for learning analysis."""
+    task_uuid = as_uuid(task_id, "task_id")
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    outcome_id = uuid.uuid4()
+    outcome_status = payload.get("status", "completed")
+    quality_score = payload.get("quality_score", 0.5)
+    execution_time = payload.get("execution_time_seconds")
+    result_summary = payload.get("result_summary", {})
+    learning_points = payload.get("learning_points", [])
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Get task info
+            cur.execute(
+                "SELECT task_id, task_type FROM tasks WHERE task_id=%s",
+                (task_uuid,)
+            )
+            task_row = cur.fetchone()
+            if not task_row:
+                raise HTTPException(status_code=404, detail="Task not found")
+            
+            task_type = task_row[1]
+            
+            # Get assignment if exists
+            cur.execute(
+                "SELECT assignment_id FROM assignments WHERE task_id=%s AND node_id=%s LIMIT 1",
+                (task_uuid, node_uuid)
+            )
+            assignment_row = cur.fetchone()
+            assignment_uuid = assignment_row[0] if assignment_row else None
+            
+            # Record outcome
+            cur.execute(
+                """
+                INSERT INTO task_outcomes
+                (outcome_id, task_id, assignment_id, node_id, outcome_status,
+                 quality_score, execution_time_seconds, result_summary, learning_points, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                """,
+                (
+                    outcome_id, task_uuid, assignment_uuid, node_uuid, outcome_status,
+                    quality_score, execution_time,
+                    Jsonb(result_summary), Jsonb(learning_points)
+                )
+            )
+            
+            # Update worker learning profile
+            cur.execute(
+                """
+                INSERT INTO worker_learning
+                (learning_id, node_id, task_type, skill_area, proficiency_score,
+                 tasks_completed, success_rate, avg_time_seconds, quality_score, last_updated, created_at)
+                VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s, now(), now())
+                ON CONFLICT (node_id, task_type, skill_area) DO UPDATE SET
+                    tasks_completed = worker_learning.tasks_completed + 1,
+                    success_rate = CASE WHEN %s = 'success' THEN 
+                        (worker_learning.success_rate * worker_learning.tasks_completed + 1) / (worker_learning.tasks_completed + 1)
+                    ELSE
+                        worker_learning.success_rate
+                    END,
+                    avg_time_seconds = CASE WHEN %s > 0 THEN
+                        (worker_learning.avg_time_seconds * worker_learning.tasks_completed + %s) / (worker_learning.tasks_completed + 1)
+                    ELSE
+                        worker_learning.avg_time_seconds
+                    END,
+                    quality_score = (worker_learning.quality_score * worker_learning.tasks_completed + %s) / (worker_learning.tasks_completed + 1),
+                    last_updated = now()
+                """,
+                (
+                    uuid.uuid4(), node_uuid, task_type, "general",
+                    0.5, quality_score, execution_time, quality_score,
+                    outcome_status, execution_time, execution_time or 0, quality_score
+                )
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "recorded",
+        "outcome_id": str(outcome_id),
+        "task_id": str(task_uuid),
+        "node_id": str(node_uuid),
+        "quality_score": quality_score
+    }
+
+@router.get("/outcomes/{node_id}")
+def get_worker_outcomes(node_id: str, task_type: str | None = Query(None), limit: int = Query(100, ge=1, le=1000)):
+    """Get task outcomes for a worker."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            if task_type:
+                cur.execute(
+                    """
+                    SELECT outcome_id, task_id, outcome_status, quality_score,
+                           execution_time_seconds, result_summary, created_at
+                    FROM task_outcomes
+                    WHERE node_id=%s AND task_id IN (
+                        SELECT task_id FROM tasks WHERE task_type=%s
+                    )
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (node_uuid, task_type, limit)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT outcome_id, task_id, outcome_status, quality_score,
+                           execution_time_seconds, result_summary, created_at
+                    FROM task_outcomes
+                    WHERE node_id=%s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (node_uuid, limit)
+                )
+            
+            outcomes = []
+            for row in cur.fetchall():
+                outcome_id, task_id, status, quality, exec_time, result, created_at = row
+                outcomes.append({
+                    "outcome_id": str(outcome_id),
+                    "task_id": str(task_id),
+                    "status": status,
+                    "quality_score": float(quality) if quality else None,
+                    "execution_time_seconds": exec_time,
+                    "result_summary": dict(result) if result else {},
+                    "created_at": created_at.isoformat()
+                })
+    
+    return {
+        "outcomes": outcomes,
+        "total": len(outcomes),
+        "node_id": str(node_uuid),
+        "task_type_filter": task_type
+    }
+
+@router.get("/learning/{node_id}")
+def get_worker_learning_profile(node_id: str):
+    """Get worker learning profile and skill development."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT learning_id, task_type, skill_area, proficiency_score,
+                       tasks_completed, success_rate, avg_time_seconds, quality_score, last_updated
+                FROM worker_learning
+                WHERE node_id=%s
+                ORDER BY proficiency_score DESC
+                """,
+                (node_uuid,)
+            )
+            
+            skills = []
+            for row in cur.fetchall():
+                learning_id, task_type, skill_area, prof_score, tasks, success, avg_time, quality, updated = row
+                skills.append({
+                    "learning_id": str(learning_id),
+                    "task_type": task_type,
+                    "skill_area": skill_area,
+                    "proficiency_score": float(prof_score) if prof_score else 0.5,
+                    "tasks_completed": tasks,
+                    "success_rate": float(success) if success else None,
+                    "avg_time_seconds": avg_time,
+                    "quality_score": float(quality) if quality else None,
+                    "last_updated": updated.isoformat() if updated else None
+                })
+    
+    return {
+        "node_id": str(node_uuid),
+        "skills": skills,
+        "total_skills": len(skills)
+    }
+
+@router.get("/patterns")
+def get_result_patterns(task_type: str | None = Query(None), min_success_rate: float = Query(0.0, ge=0, le=1)):
+    """Get discovered patterns from task results."""
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            if task_type:
+                cur.execute(
+                    """
+                    SELECT pattern_id, task_type, pattern_name, pattern_rule,
+                           success_rate, occurrence_count, first_seen, last_seen
+                    FROM result_patterns
+                    WHERE task_type=%s AND success_rate >= %s
+                    ORDER BY success_rate DESC, occurrence_count DESC
+                    """,
+                    (task_type, min_success_rate)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT pattern_id, task_type, pattern_name, pattern_rule,
+                           success_rate, occurrence_count, first_seen, last_seen
+                    FROM result_patterns
+                    WHERE success_rate >= %s
+                    ORDER BY success_rate DESC, occurrence_count DESC
+                    """,
+                    (min_success_rate,)
+                )
+            
+            patterns = []
+            for row in cur.fetchall():
+                pattern_id, task_type_val, name, rule, success, count, first, last = row
+                patterns.append({
+                    "pattern_id": str(pattern_id),
+                    "task_type": task_type_val,
+                    "pattern_name": name,
+                    "pattern_rule": dict(rule) if rule else {},
+                    "success_rate": float(success) if success else None,
+                    "occurrence_count": count,
+                    "first_seen": first.isoformat(),
+                    "last_seen": last.isoformat() if last else None
+                })
+    
+    return {
+        "patterns": patterns,
+        "total": len(patterns),
+        "task_type_filter": task_type,
+        "min_success_rate": min_success_rate
+    }
+
+@router.post("/patterns")
+def create_pattern(payload: dict):
+    """Create a new result pattern from observed outcomes."""
+    pattern_id = uuid.uuid4()
+    task_type = payload.get("task_type")
+    pattern_name = payload.get("pattern_name")
+    pattern_rule = payload.get("pattern_rule", {})
+    success_rate = payload.get("success_rate", 0.5)
+    occurrence_count = payload.get("occurrence_count", 1)
+    
+    if not task_type or not pattern_name:
+        raise HTTPException(status_code=400, detail="task_type and pattern_name required")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO result_patterns
+                (pattern_id, task_type, pattern_name, pattern_rule, success_rate,
+                 occurrence_count, first_seen, last_seen, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, now(), now(), now())
+                """,
+                (
+                    pattern_id, task_type, pattern_name,
+                    Jsonb(pattern_rule), success_rate, occurrence_count
+                )
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "created",
+        "pattern_id": str(pattern_id),
+        "task_type": task_type,
+        "pattern_name": pattern_name
+    }
+
+@router.get("/insights/{node_id}")
+def get_worker_insights(node_id: str, actionable_only: bool = Query(True)):
+    """Get performance insights and recommendations for a worker."""
+    node_uuid = as_uuid(node_id, "node_id")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            if actionable_only:
+                cur.execute(
+                    """
+                    SELECT insight_id, task_type, insight_type, description,
+                           recommendation, confidence_score, evidence_count, created_at
+                    FROM performance_insights
+                    WHERE node_id=%s AND actionable=TRUE
+                    ORDER BY confidence_score DESC, created_at DESC
+                    """,
+                    (node_uuid,)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT insight_id, task_type, insight_type, description,
+                           recommendation, confidence_score, evidence_count, created_at
+                    FROM performance_insights
+                    WHERE node_id=%s
+                    ORDER BY confidence_score DESC, created_at DESC
+                    """,
+                    (node_uuid,)
+                )
+            
+            insights = []
+            for row in cur.fetchall():
+                insight_id, task_type_val, insight_type, desc, rec, conf, evidence, created = row
+                insights.append({
+                    "insight_id": str(insight_id),
+                    "task_type": task_type_val,
+                    "insight_type": insight_type,
+                    "description": desc,
+                    "recommendation": dict(rec) if rec else {},
+                    "confidence_score": float(conf) if conf else None,
+                    "evidence_count": evidence,
+                    "created_at": created.isoformat()
+                })
+    
+    return {
+        "insights": insights,
+        "total": len(insights),
+        "node_id": str(node_uuid),
+        "actionable_only": actionable_only
+    }
+
+@router.post("/insights/{node_id}")
+def create_insight(node_id: str, payload: dict):
+    """Create a performance insight or recommendation."""
+    node_uuid = as_uuid(node_id, "node_id")
+    insight_id = uuid.uuid4()
+    
+    insight_type = payload.get("insight_type")
+    description = payload.get("description")
+    recommendation = payload.get("recommendation", {})
+    confidence_score = payload.get("confidence_score", 0.7)
+    task_type = payload.get("task_type")
+    evidence_count = payload.get("evidence_count", 1)
+    actionable = payload.get("actionable", True)
+    
+    if not insight_type:
+        raise HTTPException(status_code=400, detail="insight_type required")
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO performance_insights
+                (insight_id, node_id, task_type, insight_type, description,
+                 recommendation, confidence_score, evidence_count, actionable, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                """,
+                (
+                    insight_id, node_uuid, task_type, insight_type, description,
+                    Jsonb(recommendation), confidence_score, evidence_count, actionable
+                )
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "created",
+        "insight_id": str(insight_id),
+        "node_id": str(node_uuid),
+        "insight_type": insight_type,
+        "confidence_score": confidence_score
+    }
+
+@router.get("/knowledge")
+def get_knowledge_artifacts(artifact_type: str | None = Query(None), task_type: str | None = Query(None), limit: int = Query(100, ge=1, le=1000)):
+    """Get knowledge artifacts from successful tasks."""
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            query = "SELECT artifact_id, task_type, artifact_type, content, quality_score, usage_count, created_at FROM knowledge_artifacts WHERE 1=1"
+            params = []
+            
+            if artifact_type:
+                query += " AND artifact_type=%s"
+                params.append(artifact_type)
+            
+            if task_type:
+                query += " AND task_type=%s"
+                params.append(task_type)
+            
+            query += " ORDER BY quality_score DESC, usage_count DESC LIMIT %s"
+            params.append(limit)
+            
+            cur.execute(query, params)
+            
+            artifacts = []
+            for row in cur.fetchall():
+                artifact_id, task_type_val, artifact_type_val, content, quality, usage, created = row
+                artifacts.append({
+                    "artifact_id": str(artifact_id),
+                    "task_type": task_type_val,
+                    "artifact_type": artifact_type_val,
+                    "content": dict(content) if content else {},
+                    "quality_score": float(quality) if quality else None,
+                    "usage_count": usage,
+                    "created_at": created.isoformat()
+                })
+    
+    return {
+        "artifacts": artifacts,
+        "total": len(artifacts),
+        "artifact_type_filter": artifact_type,
+        "task_type_filter": task_type
+    }
+
+@router.post("/knowledge")
+def store_knowledge_artifact(payload: dict):
+    """Store a knowledge artifact from successful task outcomes."""
+    artifact_id = uuid.uuid4()
+    
+    task_type = payload.get("task_type")
+    artifact_type = payload.get("artifact_type")
+    content = payload.get("content", {})
+    quality_score = payload.get("quality_score", 0.8)
+    node_id = payload.get("node_id")
+    
+    if not task_type or not artifact_type:
+        raise HTTPException(status_code=400, detail="task_type and artifact_type required")
+    
+    node_uuid = as_uuid(node_id, "node_id") if node_id else None
+    
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO knowledge_artifacts
+                (artifact_id, task_type, node_id, artifact_type, content,
+                 quality_score, usage_count, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, 0, now(), now())
+                """,
+                (
+                    artifact_id, task_type, node_uuid, artifact_type,
+                    Jsonb(content), quality_score
+                )
+            )
+        
+        conn.commit()
+    
+    return {
+        "status": "stored",
+        "artifact_id": str(artifact_id),
+        "task_type": task_type,
+        "artifact_type": artifact_type,
+        "quality_score": quality_score
+    }
