@@ -1631,33 +1631,43 @@ def record_task_outcome(task_id: str, payload: dict, node_id: str = Query(...)):
             )
             
             # Update worker learning profile
+            success_value = 1.0 if outcome_status == 'success' else 0.0
+            
+            # First check if profile exists
             cur.execute(
-                """
-                INSERT INTO worker_learning
-                (learning_id, node_id, task_type, skill_area, proficiency_score,
-                 tasks_completed, success_rate, avg_time_seconds, quality_score, last_updated, created_at)
-                VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s, now(), now())
-                ON CONFLICT (node_id, task_type, skill_area) DO UPDATE SET
-                    tasks_completed = worker_learning.tasks_completed + 1,
-                    success_rate = CASE WHEN %s = 'success' THEN 
-                        (worker_learning.success_rate * worker_learning.tasks_completed + 1) / (worker_learning.tasks_completed + 1)
-                    ELSE
-                        worker_learning.success_rate
-                    END,
-                    avg_time_seconds = CASE WHEN %s > 0 THEN
-                        (worker_learning.avg_time_seconds * worker_learning.tasks_completed + %s) / (worker_learning.tasks_completed + 1)
-                    ELSE
-                        worker_learning.avg_time_seconds
-                    END,
-                    quality_score = (worker_learning.quality_score * worker_learning.tasks_completed + %s) / (worker_learning.tasks_completed + 1),
-                    last_updated = now()
-                """,
-                (
-                    uuid.uuid4(), node_uuid, task_type, "general",
-                    0.5, quality_score, execution_time, quality_score,
-                    outcome_status, execution_time, execution_time or 0, quality_score
-                )
+                "SELECT learning_id FROM worker_learning WHERE node_id=%s AND task_type=%s AND skill_area='general'",
+                (node_uuid, task_type)
             )
+            existing = cur.fetchone()
+            
+            if existing:
+                # Update: use incremental averages
+                exec_time_secs = execution_time or 0
+                cur.execute(
+                    """
+                    UPDATE worker_learning SET
+                        tasks_completed = tasks_completed + 1,
+                        success_rate = (COALESCE(success_rate, 0) * (tasks_completed) + %s) / (tasks_completed + 1),
+                        avg_time_seconds = (COALESCE(avg_time_seconds, 0) * (tasks_completed) + %s) / (tasks_completed + 1),
+                        quality_score = (COALESCE(quality_score, 0) * (tasks_completed) + %s) / (tasks_completed + 1),
+                        proficiency_score = %s,
+                        last_updated = now()
+                    WHERE node_id=%s AND task_type=%s AND skill_area='general'
+                    """,
+                    (success_value, exec_time_secs, quality_score, quality_score, node_uuid, task_type)
+                )
+            else:
+                # Insert: first record
+                cur.execute(
+                    """
+                    INSERT INTO worker_learning
+                    (learning_id, node_id, task_type, skill_area, proficiency_score,
+                     tasks_completed, success_rate, avg_time_seconds, quality_score, last_updated, created_at)
+                    VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s, now(), now())
+                    """,
+                    (uuid.uuid4(), node_uuid, task_type, "general",
+                     quality_score, success_value, execution_time or 0, quality_score)
+                )
             
             # PATTERN MATCHING: Evaluate against existing patterns
             matched_patterns = []
@@ -1707,7 +1717,7 @@ def record_task_outcome(task_id: str, payload: dict, node_id: str = Query(...)):
                     )
                 
                 # Weakness insight
-                if success_rate and success_rate < 0.6 and tasks_done and tasks_done >= 3:
+                if success_rate is not None and success_rate < 0.6 and tasks_done and tasks_done >= 3:
                     cur.execute(
                         "INSERT INTO performance_insights (insight_id, node_id, task_type, insight_type, description, confidence_score, evidence_count, actionable, created_at) "
                         "VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, now())",
@@ -1719,7 +1729,7 @@ def record_task_outcome(task_id: str, payload: dict, node_id: str = Query(...)):
                     )
                 
                 # Opportunity insight
-                if avg_time and avg_time > 120 and tasks_done and tasks_done >= 2:
+                if avg_time is not None and avg_time > 120 and tasks_done and tasks_done >= 2:
                     cur.execute(
                         "INSERT INTO performance_insights (insight_id, node_id, task_type, insight_type, description, recommendation, confidence_score, evidence_count, actionable, created_at) "
                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, now())",
