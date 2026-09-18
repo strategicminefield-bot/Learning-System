@@ -261,7 +261,6 @@ class AdaptiveOrchestrationEngine:
         candidates = []
         
         # 0. Ensure strategy_effectiveness is current (refresh cache from evidence)
-        self._refresh_strategy_effectiveness(task_type)
         # 1. Retrieve applicable strategies from Section 14
         self.cursor.execute(
             """SELECT s.strategy_id, s.strategy_name, sv.version_id, sv.version_number,
@@ -281,7 +280,7 @@ class AdaptiveOrchestrationEngine:
             strategy_id, strategy_name, version_id, version_number, success_rate, confidence, ev_count = row
             
             # 2. Check for negative/failure evidence
-            negative_evidence = self._get_negative_evidence(UUID(version_id) if version_id else strategy_id)
+            negative_evidence = self._get_negative_evidence(version_id if version_id else strategy_id)
             
             # 3. Apply constraint filtering
             if explicit_constraints and self._violates_constraints(strategy_name, explicit_constraints):
@@ -326,13 +325,13 @@ class AdaptiveOrchestrationEngine:
         
         # 1. Retrieve available workers with status
         self.cursor.execute(
-            """SELECT n.node_id, n.node_name, n.status, wm.tasks_completed, wm.average_quality_score,
+            """SELECT n.node_id, n.node_type, n.status, wm.tasks_completed, wm.average_quality_score,
                       STRING_AGG(wc.capability_name, ',') as capabilities
                FROM nodes n
                LEFT JOIN worker_metrics wm ON n.node_id = wm.node_id
                LEFT JOIN worker_capabilities wc ON n.node_id = wc.node_id AND wc.enabled = TRUE
                WHERE n.status IN ('available', 'busy')
-               GROUP BY n.node_id, n.node_name, n.status, wm.tasks_completed, wm.average_quality_score
+               GROUP BY n.node_id, n.node_type, n.status, wm.tasks_completed, wm.average_quality_score
                ORDER BY (CASE WHEN n.status = 'available' THEN 0 ELSE 1 END),
                         wm.average_quality_score DESC NULLS LAST
                LIMIT 5""",
@@ -340,7 +339,7 @@ class AdaptiveOrchestrationEngine:
         )
         
         for row in self.cursor.fetchall():
-            node_id, node_name, status, tasks_completed, quality_score, capabilities = row
+            node_id, node_type, status, tasks_completed, quality_score, capabilities = row
             
             # 2. Check capability match with strategy requirements
             capability_match = self._evaluate_capability_match(
@@ -349,11 +348,11 @@ class AdaptiveOrchestrationEngine:
             )
             
             # 3. Retrieve worker-specific evidence from Sections 12 (cross-node)
-            worker_evidence = self._get_worker_evidence(UUID(node_id))
+            worker_evidence = self._get_worker_evidence(node_id)
             
             candidates.append({
                 "node_id": str(node_id),
-                "node_name": node_name,
+                "node_type": node_type,
                 "status": status,
                 "availability": status == 'available',
                 "tasks_completed": int(tasks_completed) if tasks_completed else 0,
@@ -362,7 +361,7 @@ class AdaptiveOrchestrationEngine:
                 "capability_match_score": capability_match,
                 "worker_evidence": worker_evidence,
                 "applicability_score": self._calculate_worker_applicability(
-                    UUID(node_id), task_type, quality_score or 0.5
+                    node_id, task_type, quality_score or 0.5
                 ),
                 "is_preferred": preferred_node and str(node_id) == str(preferred_node)
             })

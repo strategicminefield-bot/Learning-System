@@ -35,6 +35,7 @@ class OrchestrationRequest(BaseModel):
     node_id: Optional[UUID] = None
     explicit_constraints: Optional[Dict[str, Any]] = None
     force_replan_from: Optional[UUID] = None
+    approval_request_id: Optional[UUID] = None
 
 
 class OrchestrationResponse(BaseModel):
@@ -97,7 +98,8 @@ def create_orchestration_decision(
             context=request.context or {},
             node_id=request.node_id,
             explicit_constraints=request.explicit_constraints,
-            force_replan_from=request.force_replan_from
+            force_replan_from=request.force_replan_from,
+            approval_request_id=request.approval_request_id
         )
         
         return OrchestrationResponse(**result)
