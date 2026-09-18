@@ -8,6 +8,7 @@ import json
 import json
 import hashlib
 from typing import Optional, Dict, List, Any, Tuple
+from experimentation_engine import ExperimentationEngine
 from uuid import UUID, uuid4
 
 class DecimalEncoder(json.JSONEncoder):
@@ -201,6 +202,30 @@ class AdaptiveOrchestrationEngine:
                 )
             
             # 12. Update idempotency registry
+            # If learning need detected, trigger experiment creation
+            experiment_id = None
+            if strategy_evaluation.get('learning_need'):
+                try:
+                    learning_need = strategy_evaluation['learning_need']
+                    exp_engine = ExperimentationEngine(self.conn)
+                    tied = learning_need.get('tied_candidates', [])
+                    if len(tied) >= 2:
+                        exp_result = exp_engine.create_experiment(
+                            hypothesis=f"Compare effectiveness: {tied[0][:8]}... vs {tied[1][:8]}...",
+                            objective=f"Gather discriminating evidence in domain {task_type}",
+                            control_strategy_id=tied[0],
+                            treatment_strategy_id=tied[1],
+                            task_domain=task_type,
+                            metrics=[{"metric_name": "success_rate", "target": 0.95}],
+                            min_sample_size=10,
+                            autonomous_initiated=True,
+                            autonomous_trigger_reason="Insufficient comparative evidence"
+                        )
+                        if exp_result.get('experiment_id'):
+                            experiment_id = exp_result['experiment_id']
+                except Exception as e:
+                    logger.warning(f"Learning trigger failed: {str(e)}")
+            
             self._record_idempotency(task_id, request_hash, decision_id, is_retry=force_replan_from is not None)
             
             # 13. Record orchestration event
@@ -255,7 +280,7 @@ class AdaptiveOrchestrationEngine:
             (task_id, request_hash)
         )
         row = self.cursor.fetchone()
-        return UUID(row[0]) if row else None
+        return row[0] if row else None
 
     def _retrieve_context(self, task_id: UUID, task_type: str, node_id: Optional[UUID]) -> Dict:
         """Retrieve relevant context using Section 9 retrieval system."""
@@ -471,12 +496,41 @@ class AdaptiveOrchestrationEngine:
         
         selected = None
         selected_score = 0
-        for item in ranked:
+        learning_need = None
+        evidence_suff = "low"
+        
+        valid_candidates = [item for item in ranked if not item.get('excluded_reason') and item['score'] > 0]
+        
+        # Check for tied/insufficient comparative evidence
+        if len(valid_candidates) >= 2:
+            top_score = valid_candidates[0]['score']
+            top_effectiveness = valid_candidates[0]['effectiveness']
+            top_evidence = valid_candidates[0]['evidence_count']
+            
+            # Find all candidates tied with top (within 5%)
+            tied = [c for c in valid_candidates[:3] if abs(c['score'] - top_score) < (top_score * 0.05 + 0.001)]
+            
+            if len(tied) >= 2:
+                same_evidence = all(c['evidence_count'] == top_evidence for c in tied)
+                same_effectiveness = all(abs(c['effectiveness'] - top_effectiveness) < 0.001 for c in tied)
+                
+                # If strategies are tied and have insufficient evidence, mark learning need
+                if same_evidence and same_effectiveness and top_evidence < 3:
+                    learning_need = {
+                        'reason': 'insufficient_comparative_evidence',
+                        'tied_candidates': [c['candidate']['strategy_id'] for c in tied],
+                        'common_effectiveness': float(top_effectiveness),
+                        'common_evidence_count': int(top_evidence),
+                        'strategies_compared': len(tied)
+                    }
+        
+        for item in valid_candidates:
             if item['excluded_reason']:
-                continue  # Skip excluded candidates
+                continue
             if item['score'] > 0:
                 selected = item['candidate']
                 selected_score = item['score']
+                evidence_suff = item['evidence_sufficiency']  # Use actual sufficiency
                 break
         
         # Use fallback if no adequate strategy
@@ -486,13 +540,18 @@ class AdaptiveOrchestrationEngine:
                     selected = candidate
                     break
         
-        return {
+        result = {
             "selected": selected,
             "ranked": ranked[:5],  # Top 5 for auditing
             "confidence": float(selected_score) if selected else 0.3,
-            "evidence_sufficiency": "low" if not selected or selected.get('is_fallback') else "adequate",
+            "evidence_sufficiency": evidence_suff if selected else "low",
             "rationale": f"Selected based on effectiveness ({selected_score:.2f} score), evidence sufficiency, and applicability"
         }
+        
+        if learning_need:
+            result['learning_need'] = learning_need
+        
+        return result
 
     def _evaluate_worker_candidates(
         self,
