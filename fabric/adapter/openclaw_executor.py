@@ -197,8 +197,8 @@ class FabricClient:
             logger.debug(f"Poll error: {e}")
             return None
     
-    def claim_assignment(self, assignment_id: str) -> bool:
-        """Claim an assignment."""
+    def claim_assignment(self, assignment_id: str) -> Optional[dict]:
+        """Claim an assignment and return full response including bounded_learning_context."""
         try:
             data = {"node_id": self.node_id}
             # Claim endpoint is at root level
@@ -210,13 +210,13 @@ class FabricClient:
             
             if resp.status_code in [200, 201]:
                 logger.info(f"Assignment claimed: {assignment_id}")
-                return True
+                return resp.json()  # Return full response with bounded_learning_context
             else:
                 logger.warning(f"Claim failed: {resp.status_code}")
-                return False
+                return None
         except Exception as e:
             logger.warning(f"Claim error: {e}")
-            return False
+            return None
     
     def create_attempt(self, assignment_id: str) -> Optional[str]:
         """Create an attempt for an assignment."""
@@ -294,39 +294,37 @@ class OpenClawExecutor:
     """Executes tasks using actual OpenClaw."""
     
     @staticmethod
-    
-
-def format_task_with_bounded_learning(task_spec: dict, bounded_learning: list) -> str:
-    """
-    Format task specification with retrieved bounded learning context.
-    Returns prompt that includes prior learning before current task.
-    """
-    learning_section = ""
-    
-    if bounded_learning:
-        learning_section = "\n\n" + "="*70 + "\n"
-        learning_section += "RELEVANT PRIOR LEARNING (retrieved from Fabric)\n"
-        learning_section += "="*70 + "\n"
+    def format_task_with_bounded_learning(task_spec: dict, bounded_learning: list) -> str:
+        """
+        Format task specification with retrieved bounded learning context.
+        Returns prompt that includes prior learning before current task.
+        """
+        learning_section = ""
         
-        for i, learning in enumerate(bounded_learning, 1):
-            content = learning.get('content', {})
-            state = learning.get('state', 'unknown')
-            stmt = content.get('statement', content.get('learning_statement', ''))
-            v_status = content.get('verification_status', 'unknown')
-            prov = content.get('provenance', {})
+        if bounded_learning:
+            learning_section = "\n\n" + "="*70 + "\n"
+            learning_section += "RELEVANT PRIOR LEARNING (retrieved from Fabric)\n"
+            learning_section += "="*70 + "\n"
             
-            learning_section += f"\n[Learning {i}] (state={state}, verified={v_status})\n"
-            learning_section += f"  Statement: {stmt}\n"
-            if prov.get('outcome_id'):
-                learning_section += f"  Source: outcome {prov['outcome_id'][:8]}...\n"
-            learning_section += f"  Applicability: Apply where relevant to current objective.\n"
+            for i, learning in enumerate(bounded_learning, 1):
+                content = learning.get('content', {})
+                state = learning.get('state', 'unknown')
+                stmt = content.get('statement', content.get('learning_statement', ''))
+                v_status = content.get('verification_status', 'unknown')
+                prov = content.get('provenance', {})
+                
+                learning_section += f"\n[Learning {i}] (state={state}, verified={v_status})\n"
+                learning_section += f"  Statement: {stmt}\n"
+                if prov.get('outcome_id'):
+                    learning_section += f"  Source: outcome {prov['outcome_id'][:8]}...\n"
+                learning_section += f"  Applicability: Apply where relevant to current objective.\n"
+            
+            learning_section += "\n" + "="*70 + "\n"
+            learning_section += "Use above learning as evidence-informed context only.\n"
+            learning_section += "Current task objective takes priority.\n"
+            learning_section += "="*70 + "\n"
         
-        learning_section += "\n" + "="*70 + "\n"
-        learning_section += "Use above learning as evidence-informed context only.\n"
-        learning_section += "Current task objective takes priority.\n"
-        learning_section += "="*70 + "\n"
-    
-    task_prompt = f"""CURRENT TASK (Fabric assignment)
+        task_prompt = f"""CURRENT TASK (Fabric assignment)
 -----
 {json.dumps(task_spec, indent=2)}{learning_section}
 
@@ -334,61 +332,96 @@ INSTRUCTIONS:
 Execute the specified task.
 If prior learning applies to this objective, use it as guidance.
 Return your result with quality assessment."""
-    
-    return task_prompt
-\n\ndef execute_task(task: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute a task using ACTUAL OpenClaw.
         
-        Returns structured result dict compatible with Fabric API.
-        """
-        try:
-            logger.info(f"Executing task: {task.get('task_id')}")
-            
-            # Extract task specification
-            spec = task.get("specification", {})
-            if isinstance(spec, str):
-                spec = json.loads(spec)
-            
-            # Invoke ACTUAL OpenClaw - This calls the real AI model
-            openclaw_output = OpenClawExecutor._run_openclaw(task, spec)
-            
-            return {
-                "status": "completed",
-                "output": openclaw_output,  # Full JSON-formatted output from OpenClaw
-                "quality_score": 0.85,
-                "execution_time": 0,
-                "execution_evidence": {
-                    "provider": "openclaw",
-                    "model": "claude-haiku-4.5",
-                    "execution_type": "real local agent execution",
-                    "real_execution": True
-                }
+        return task_prompt
+
+
+
+def execute_task(task: Dict[str, Any], bounded_learning: list = None) -> Dict[str, Any]:
+    """
+    Execute a task using ACTUAL OpenClaw.
+    
+    Args:
+        task: Task specification dict
+        bounded_learning: Optional list of bounded learning records from Fabric
+    
+    Returns structured result dict compatible with Fabric API.
+    """
+    try:
+        logger.info(f"Executing task: {task.get('task_id')}")
+        
+        # Extract task specification
+        spec = task.get("specification", {})
+        if isinstance(spec, str):
+            spec = json.loads(spec)
+        
+        # Format prompt with bounded learning if available
+        if bounded_learning:
+            logger.info(f"Including {len(bounded_learning)} bounded learning record(s) in prompt")
+            prompt_with_learning = OpenClawExecutor.format_task_with_bounded_learning(spec, bounded_learning or [])
+        else:
+            prompt_with_learning = OpenClawExecutor.format_task_with_bounded_learning(spec, [])
+        
+        # Invoke ACTUAL OpenClaw - This calls the real AI model
+        openclaw_output = OpenClawExecutor._run_openclaw(task, spec, prompt_with_learning)
+        
+        return {
+            "status": "completed",
+            "output": openclaw_output,  # Full JSON-formatted output from OpenClaw
+            "quality_score": 0.85,
+            "execution_time": 0,
+            "execution_evidence": {
+                "provider": "openclaw",
+                "model": "claude-haiku-4.5",
+                "execution_type": "real local agent execution",
+                "real_execution": True
             }
-        except Exception as e:
-            logger.error(f"Execution error: {e}")
-            return {
-                "status": "failed",
-                "error": str(e),
-                "output": None,
-                "quality_score": 0,
-                "execution_evidence": {"error": str(e)}
-            }
+        }
+    except Exception as e:
+        logger.error(f"Execution error: {e}")
+        return {
+            "status": "failed",
+            "error": str(e),
+            "output": None,
+            "quality_score": 0,
+            "execution_evidence": {"error": str(e)}
+        }
     
     @staticmethod
-    def _run_openclaw(task: Dict[str, Any], spec: Dict[str, Any]) -> str:
+    def _run_openclaw(task: Dict[str, Any], spec: Dict[str, Any], prompt_with_learning: str = None) -> str:
         """
         Run ACTUAL OpenClaw execution against the real OpenClaw API.
         
         This invokes the actual OpenClaw running on this system via `openclaw agent` command.
+        
+        Args:
+            task: Task specification
+            spec: Task specification dict
+            prompt_with_learning: Formatted prompt with bounded learning included
         """
         try:
             task_id = task.get("task_id")
-            prompt = spec.get("prompt", "Complete the task")
             test_id = spec.get("test_id", "")
             
-            logger.info(f"Invoking REAL OpenClaw agent for task {task_id}")
-            logger.info(f"Prompt: {prompt[:100]}...")
+            # Use prompt with learning if available, otherwise fall back to spec
+            if prompt_with_learning:
+                prompt = prompt_with_learning
+                logger.info(f"Invoking REAL OpenClaw agent for task {task_id} WITH BOUNDED LEARNING")
+            else:
+                prompt = spec.get("prompt", "Complete the task")
+                logger.info(f"Invoking REAL OpenClaw agent for task {task_id}")
+            
+            logger.info(f"Prompt (first 150 chars): {prompt[:150]}...")
+            
+            # Save actual prompt to /tmp for proof
+            prompt_file = f"/tmp/actual_openclaw_prompt_{task_id}.txt"
+            with open(prompt_file, 'w') as f:
+                f.write("="*70 + "\n")
+                f.write(f"ACTUAL OpenClaw PROMPT (Task: {task_id})\n")
+                f.write("="*70 + "\n\n")
+                f.write(prompt)
+                f.write("\n\n" + "="*70 + "\n")
+            logger.info(f"Prompt saved to {prompt_file} for proof")
             
             # ACTUAL OpenClaw execution via subprocess
             # This calls the real openclaw agent command with local embedding
@@ -506,19 +539,25 @@ class ExecutorAdapter:
                 logger.error(f"Task {task_id} not found")
                 return
             
-            # Claim assignment
-            if not self.client.claim_assignment(assignment_id):
+            # Claim assignment and capture bounded learning context
+            claim_response = self.client.claim_assignment(assignment_id)
+            if not claim_response:
                 logger.warning(f"Failed to claim assignment {assignment_id}")
                 return
             
-            # Create attempt
-            attempt_id = self.client.create_attempt(assignment_id)
+            # Extract bounded learning from claim response
+            bounded_learning = claim_response.get("bounded_learning_context", [])
+            if bounded_learning:
+                logger.info(f"Received {len(bounded_learning)} bounded learning record(s) in claim response")
+            
+            # Create attempt (already done by claim, but get ID)
+            attempt_id = claim_response.get("attempt_id")
             if not attempt_id:
-                logger.warning(f"Failed to create attempt for {assignment_id}")
+                logger.warning(f"No attempt_id in claim response for {assignment_id}")
                 return
             
-            # Execute with ACTUAL OpenClaw
-            result = OpenClawExecutor.execute_task(task)
+            # Execute with ACTUAL OpenClaw, passing bounded learning
+            result = OpenClawExecutor.execute_task(task, bounded_learning)
             
             # Submit result
             if self.client.submit_result(attempt_id, result):
