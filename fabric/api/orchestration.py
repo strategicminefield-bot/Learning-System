@@ -518,6 +518,7 @@ def submit_attempt_result(attempt_id: str, payload: ResultIn):
 
     # Trigger orchestration finalization pipeline
     # Connects: result → completion → verification → outcome → learning → organisational memory
+    finalization = {}
     if auto_finalize_result:
         try:
             finalization = auto_finalize_result(str(result_id))
@@ -527,13 +528,16 @@ def submit_attempt_result(attempt_id: str, payload: ResultIn):
         except Exception as e:
             # Log but don't fail the result submission if finalization fails
             logger.error(f"Orchestration finalization failed for result {result_id}: {e}", exc_info=True)
+            finalization = {"status": "error", "error": str(e)}
     else:
         logger.warning("orchestration_finalization not available, skipping pipeline")
+        finalization = {"status": "skipped", "reason": "auto_finalize_result not available"}
 
     return {
         "status": "recorded",
         "result_id": str(result_id),
         "attempt_id": str(attempt_uuid),
+        "finalization": finalization
     }
 
 
