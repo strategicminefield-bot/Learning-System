@@ -14,8 +14,19 @@ import logging
 from adaptive_orchestration import AdaptiveOrchestrationEngine
 import os
 import psycopg
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
+
+def convert_decimals(obj):
+    """Recursively convert Decimal objects to float for JSON serialization."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_decimals(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_decimals(item) for item in obj]
+    return obj
 
 router = APIRouter(prefix="/api/v1/orchestration", tags=["orchestration-v15"])
 
@@ -43,6 +54,12 @@ class OrchestrationResponse(BaseModel):
     strategy_selected: Optional[str]
     worker_selected: Optional[str]
     execution_plan: Dict
+    
+    class Config:
+        arbitrary_types_allowed = True
+        json_encoders = {
+            Decimal: lambda v: float(v)
+        }
     confidence: float
     evidence_sufficiency: str
     rationale: Dict
@@ -101,6 +118,10 @@ def create_orchestration_decision(
             force_replan_from=request.force_replan_from,
             approval_request_id=request.approval_request_id
         )
+        
+        # Deep recursion to handle Decimals anywhere in the result
+        import json
+        result = json.loads(json.dumps(result, default=lambda x: float(x) if isinstance(x, Decimal) else str(x)))
         
         return OrchestrationResponse(**result)
     

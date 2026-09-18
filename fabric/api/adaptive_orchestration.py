@@ -4,9 +4,18 @@ Evidence-based task orchestration with learned strategy selection, worker alloca
 """
 
 import json
+
+import json
 import hashlib
 from typing import Optional, Dict, List, Any, Tuple
 from uuid import UUID, uuid4
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
+
 from datetime import datetime, timedelta
 import logging
 from decimal import Decimal
@@ -588,14 +597,14 @@ class AdaptiveOrchestrationEngine:
                 decision_id,
                 task_id,
                 datetime.utcnow(),
-                json.dumps(context_considered),
+                json.dumps(context_considered, cls=DecimalEncoder),
                 json.dumps(strategy_candidates),
                 UUID(strategy_selected['strategy_id']) if strategy_selected and strategy_selected.get('strategy_id') else None,
                 strategy_rationale or "No rationale provided",
-                json.dumps(worker_candidates),
+                json.dumps(worker_candidates, cls=DecimalEncoder),
                 UUID(worker_selected['node_id']) if worker_selected else None,
                 worker_rationale or "No rationale provided",
-                json.dumps(execution_plan),
+                json.dumps(execution_plan, cls=DecimalEncoder),
                 confidence_score,
                 evidence_summary.get('sufficiency', 'adequate'),
                 json.dumps(evidence_summary),
