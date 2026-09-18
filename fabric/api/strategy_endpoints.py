@@ -11,7 +11,7 @@ from datetime import datetime
 import os
 import logging
 
-from .strategy_learning import StrategyLearningService
+from strategy_learning import StrategyLearningService
 
 logger = logging.getLogger(__name__)
 
