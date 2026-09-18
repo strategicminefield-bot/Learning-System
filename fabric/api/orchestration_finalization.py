@@ -607,7 +607,7 @@ def auto_finalize_result(result_id: str) -> Dict[str, Any]:
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT evidence_category FROM validation_evidence
-                        WHERE candidate_id=%s ORDER BY created_at DESC LIMIT 1
+                        WHERE candidate_id=%s ORDER BY recorded_at DESC LIMIT 1
                     """, (uuid.UUID(verification_id),))
                     ev_row = cur.fetchone()
                     
