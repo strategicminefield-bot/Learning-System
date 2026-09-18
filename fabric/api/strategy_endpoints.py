@@ -9,8 +9,11 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import os
+import logging
 
 from .strategy_learning import StrategyLearningService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["strategy-learning"])
 
@@ -186,7 +189,7 @@ async def record_execution(strategy_id: str, req: RecordExecutionRequest):
 
 @router.post("/strategies/{strategy_id}/evidence")
 async def add_evidence(strategy_id: str, req: AddEvidenceRequest):
-    """Add evidence to strategy"""
+    """Add evidence to strategy and automatically recalculate effectiveness"""
     try:
         evidence_id = service.add_evidence(
             strategy_id=strategy_id,
@@ -201,11 +204,24 @@ async def add_evidence(strategy_id: str, req: AddEvidenceRequest):
             version_id=req.version_id,
             evidence_data=req.evidence_data
         )
+        
+        # Automatically recalculate effectiveness after adding evidence
+        effectiveness_id = None
+        try:
+            effectiveness = service.calculate_effectiveness(
+                strategy_id=strategy_id,
+                version_id=req.version_id
+            )
+            effectiveness_id = effectiveness.get('effectiveness_id')
+        except Exception as e:
+            logger.warning(f"Auto-calculate effectiveness for {strategy_id} failed: {e}")
+        
         return {
             'evidence_id': evidence_id,
             'strategy_id': strategy_id,
             'evidence_type': req.evidence_type,
-            'status': 'recorded'
+            'status': 'recorded',
+            'effectiveness_id': effectiveness_id
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
