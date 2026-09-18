@@ -197,7 +197,7 @@ class AdaptiveOrchestrationEngine:
             # 13. Record orchestration event
             self._record_orchestration_event(
                 decision_id, "orchestration_completed", "decision",
-                {"strategy": str(selected_strategy), "worker": str(selected_worker), "plan": plan_id}
+                {"strategy": str(selected_strategy), "worker": str(selected_worker), "plan": str(plan_id)}
             )
             
             self.conn.commit()
@@ -661,10 +661,9 @@ class AdaptiveOrchestrationEngine:
         
         self.cursor.execute(
             """INSERT INTO assignments (
-                assignment_id, task_id, node_id, status,
-                created_at, assigned_at
-            ) VALUES (%s, %s, %s, 'assigned', %s, %s)""",
-            (assignment_id, task_id, node_id, datetime.utcnow(), datetime.utcnow())
+                assignment_id, task_id, node_id, status
+            ) VALUES (%s, %s, %s, 'assigned')""",
+            (assignment_id, task_id, node_id)
         )
         
         # Link assignment to orchestration decision
@@ -673,18 +672,22 @@ class AdaptiveOrchestrationEngine:
             (assignment_id, decision_id)
         )
         
-        # Record event
+        # Record event - use actual schema with data JSONB
         self.cursor.execute(
             """INSERT INTO events (
-                event_id, event_type, entity_type, entity_id, node_id,
-                previous_state, current_state, metadata, created_at
-            ) VALUES (%s, 'created', 'assignment', %s, %s, %s, %s, %s, %s)""",
+                event_id, event_type, node_id, data
+            ) VALUES (%s, %s, %s, %s)""",
             (
-                uuid4(), assignment_id, node_id,
-                json.dumps({"status": None}),
-                json.dumps({"status": "assigned", "orchestration_decision": str(decision_id)}),
-                json.dumps({"orchestration_decision_id": str(decision_id)}),
-                datetime.utcnow()
+                str(uuid4()),
+                'assignment_created',
+                node_id,
+                json.dumps({
+                    "entity_type": "assignment",
+                    "entity_id": str(assignment_id),
+                    "orchestration_decision_id": str(decision_id),
+                    "node_id": str(node_id),
+                    "status": "assigned"
+                })
             )
         )
         
