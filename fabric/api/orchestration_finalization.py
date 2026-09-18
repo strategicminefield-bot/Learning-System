@@ -59,12 +59,17 @@ def finalize_result_completion(result_id: str) -> Dict[str, Any]:
             
             attempt_id, task_id, node_id, assignment_id, assignment_status = row
             
+            logger.info(f"Finalization: result={result_id}, assignment={assignment_id}, status={assignment_status}")
+            
             # Check if assignment is claimed (normal state for completing)
             if assignment_status != "claimed":
+                logger.error(f"Assignment state mismatch: expected 'claimed', got '{assignment_status}'")
                 return {
                     "status": "error",
+                    "phase": "completion",
                     "detail": f"assignment is {assignment_status}, cannot auto-complete",
-                    "assignment_id": str(assignment_id)
+                    "assignment_id": str(assignment_id),
+                    "expected_state": "claimed"
                 }
             
             # Complete assignment
