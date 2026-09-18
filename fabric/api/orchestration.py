@@ -199,6 +199,36 @@ def create_assignment(assignment: AssignmentIn):
             )
 
         conn.commit()
+        
+        # NEW: Retrieve relevant bounded learning for this task type
+        try:
+            cur.execute("SELECT task_type FROM tasks WHERE task_id=%s", (task_uuid,))
+            task_row = cur.fetchone()
+            if task_row:
+                task_type = task_row[0]
+                # Get recent bounded/active learning for this task type (max 5)
+                cur.execute("""
+                    SELECT org_learning_id, content, current_state FROM organisational_learning
+                    WHERE task_type=%s AND (current_state='bounded' OR current_state='active')
+                    ORDER BY updated_at DESC LIMIT 5
+                """, (task_type,))
+                
+                learning_records = []
+                for row in cur.fetchall():
+                    learning_records.append({
+                        "learning_id": str(row[0]),
+                        "state": row[1],
+                        "content": row[2] if isinstance(row[2], dict) else {}
+                    })
+                
+                # Store learning context in assignment metadata
+                if learning_records:
+                    cur.execute("""
+                        UPDATE assignments SET metadata=%s WHERE assignment_id=%s
+                    """, (Jsonb({"bounded_learning_context": learning_records}), assignment_id))
+                    conn.commit()
+        except Exception as e:
+            logger.debug(f"Learning retrieval in assignment creation: {e}")
 
     return {"status": "assigned", "assignment_id": str(assignment_id), "task_id": str(task_uuid), "node_id": str(node_uuid)}
 
@@ -269,7 +299,20 @@ def claim_assignment(assignment_id: str, payload: dict):
 
         conn.commit()
 
-    return {"status": "claimed", "assignment_id": str(assignment_uuid), "attempt_id": str(attempt_id)}
+        # Get bounded learning context from assignment metadata
+            cur.execute("""
+                SELECT metadata FROM assignments WHERE assignment_id=%s
+            """, (assignment_uuid,))
+            meta_row = cur.fetchone()
+            metadata = meta_row[0] if meta_row else {}
+            bounded_learning = metadata.get("bounded_learning_context", []) if isinstance(metadata, dict) else []
+        
+    return {
+        "status": "claimed",
+        "assignment_id": str(assignment_uuid),
+        "attempt_id": str(attempt_id),
+        "bounded_learning_context": bounded_learning
+    }
 
 
 @router.get("/assignments/{assignment_id}")

@@ -114,6 +114,73 @@ def finalize_result_completion(result_id: str) -> Dict[str, Any]:
     }
 
 
+
+def create_bounded_learning_from_outcome(outcome_id: str, task_id: str, result_id: str, verification_result: Dict[str, Any]) -> Tuple[bool, Optional[str], str]:
+    """
+    Create bounded learning from verified outcome with full provenance.
+    Bounded state = not yet promoted to universal organisational truth.
+    Governance can promote bounded→active based on accumulated evidence.
+    """
+    try:
+        outcome_uuid = uuid.UUID(outcome_id)
+        task_uuid = uuid.UUID(task_id)
+        result_uuid = uuid.UUID(result_id)
+    except ValueError as e:
+        logger.error(f"Invalid UUID: {e}")
+        return False, None, f"invalid uuid: {str(e)}"
+    
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT task_type FROM tasks WHERE task_id=%s", (task_uuid,))
+                task_row = cur.fetchone()
+                if not task_row:
+                    return False, None, "task not found"
+                task_type = task_row[0]
+                
+                verification_status = verification_result.get('verification_status', 'unverified')
+                evidence_category = verification_result.get('evidence_category', 'neutral')
+                
+                if verification_status == 'verified_success':
+                    stmt = f"Verified: {task_type} method achieved objective"
+                    basis = "verified_success"
+                elif verification_status == 'verified_failure':
+                    stmt = f"Verified: {task_type} method did not achieve objective"
+                    basis = "verified_failure (contradictory)"
+                else:
+                    stmt = f"Observation: {task_type} insufficient evidence"
+                    basis = verification_status
+                
+                learning_id = uuid.uuid4()
+                cur.execute("""
+                    INSERT INTO organisational_learning
+                    (org_learning_id, source_task_type, task_type, content, promotion_confidence, current_state, evidence_count, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, now(), now())
+                """, (
+                    learning_id, task_type, task_type,
+                    Jsonb({
+                        "bounded": True,
+                        "verification_status": verification_status,
+                        "evidence_category": evidence_category,
+                        "statement": stmt,
+                        "outcome_id": str(outcome_uuid),
+                        "task_id": str(task_uuid),
+                        "result_id": str(result_uuid),
+                        "provenance": {
+                            "outcome_id": str(outcome_uuid),
+                            "verification_status": verification_status,
+                            "evidence_category": evidence_category
+                        }
+                    }),
+                    0.5, 'bounded', 1
+                ))
+                conn.commit()
+                logger.info(f"Bounded learning {learning_id} from outcome {outcome_id}")
+                return True, str(learning_id), f"bounded ({basis})"
+    except Exception as e:
+        logger.error(f"Bounded learning error: {str(e)}", exc_info=True)
+        return False, None, str(e)
+
 def create_verification_from_result(result_id: str, task_id: str) -> Tuple[bool, Optional[str], str]:
     """
     Create validation candidate from result for verification.
@@ -521,17 +588,44 @@ def auto_finalize_result(result_id: str) -> Dict[str, Any]:
     if not success:
         errors.append(f"outcome recording failed: {note}")
     
-    # Step 4: CORRECTED: Propose learning for evidence-based promotion
-    # (Not automatic - governance/validation will assess)
-    # 
-    # We propose learning for consideration, but actual promotion depends on:
-    # - Validation rules (validation_rule_configs)
-    # - Evidence sufficiency assessment
-    # - Governance approval (if required)
-    #
-    # This respects the core principle: evidence → verification → decision → action
-    # NOT: quality_score >= 0.7 → automatic promotion
+    # Step 4: Create bounded learning from verified outcome
+    if success and outcome_id and verification_id:
+        try:
+            with psycopg.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT evidence_category FROM validation_evidence
+                        WHERE candidate_id=%s ORDER BY created_at DESC LIMIT 1
+                    """, (uuid.UUID(verification_id),))
+                    ev_row = cur.fetchone()
+                    
+                    if ev_row and ev_row[0] == 'supportive':
+                        v_status = 'verified_success'
+                    elif ev_row and ev_row[0] == 'contradictory':
+                        v_status = 'verified_failure'
+                    else:
+                        v_status = 'insufficient_evidence'
+                    
+                    verification_result = {
+                        'verification_status': v_status,
+                        'evidence_category': ev_row[0] if ev_row else 'neutral'
+                    }
+            
+            success_bl, learning_id, note = create_bounded_learning_from_outcome(
+                outcome_id, task_id, result_id, verification_result
+            )
+            result_info['bounded_learning'] = {
+                'created': success_bl,
+                'learning_id': learning_id,
+                'note': note
+            }
+        except Exception as e:
+            logger.error(f"Bounded learning error: {e}")
+            result_info['bounded_learning'] = {'created': False, 'note': str(e)}
+    else:
+        result_info['bounded_learning'] = {'created': False, 'note': 'outcome incomplete'}
     
+    # Step 5: Propose learning for governance assessment
     # Get the worker_learning record to propose for promotion
     try:
         with psycopg.connect(DATABASE_URL) as conn:

@@ -294,7 +294,49 @@ class OpenClawExecutor:
     """Executes tasks using actual OpenClaw."""
     
     @staticmethod
-    def execute_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    
+
+def format_task_with_bounded_learning(task_spec: dict, bounded_learning: list) -> str:
+    """
+    Format task specification with retrieved bounded learning context.
+    Returns prompt that includes prior learning before current task.
+    """
+    learning_section = ""
+    
+    if bounded_learning:
+        learning_section = "\n\n" + "="*70 + "\n"
+        learning_section += "RELEVANT PRIOR LEARNING (retrieved from Fabric)\n"
+        learning_section += "="*70 + "\n"
+        
+        for i, learning in enumerate(bounded_learning, 1):
+            content = learning.get('content', {})
+            state = learning.get('state', 'unknown')
+            stmt = content.get('statement', content.get('learning_statement', ''))
+            v_status = content.get('verification_status', 'unknown')
+            prov = content.get('provenance', {})
+            
+            learning_section += f"\n[Learning {i}] (state={state}, verified={v_status})\n"
+            learning_section += f"  Statement: {stmt}\n"
+            if prov.get('outcome_id'):
+                learning_section += f"  Source: outcome {prov['outcome_id'][:8]}...\n"
+            learning_section += f"  Applicability: Apply where relevant to current objective.\n"
+        
+        learning_section += "\n" + "="*70 + "\n"
+        learning_section += "Use above learning as evidence-informed context only.\n"
+        learning_section += "Current task objective takes priority.\n"
+        learning_section += "="*70 + "\n"
+    
+    task_prompt = f"""CURRENT TASK (Fabric assignment)
+-----
+{json.dumps(task_spec, indent=2)}{learning_section}
+
+INSTRUCTIONS:
+Execute the specified task.
+If prior learning applies to this objective, use it as guidance.
+Return your result with quality assessment."""
+    
+    return task_prompt
+\n\ndef execute_task(task: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute a task using ACTUAL OpenClaw.
         
