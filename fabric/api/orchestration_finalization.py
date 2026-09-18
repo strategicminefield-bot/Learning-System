@@ -63,8 +63,7 @@ def finalize_result_completion(result_id: str) -> Dict[str, Any]:
             
             result_id_check, attempt_id_from_result, attempt_id_from_attempts, task_id, node_id, assignment_id, assignment_status = row
             
-            print(f"DEBUG: Finalization: result={result_id_check}, attempt_result={attempt_id_from_result}, attempt_attempts={attempt_id_from_attempts}, assignment={assignment_id}, status={assignment_status}", flush=True)
-            logger.warning(f"Finalization: result={result_id_check}, attempt_result={attempt_id_from_result}, attempt_attempts={attempt_id_from_attempts}, assignment={assignment_id}, status={assignment_status}")
+            logger.info(f"Finalization: result={result_id_check}, assignment={assignment_id}, status={assignment_status}")
             
             attempt_id = attempt_id_from_result
             
@@ -164,12 +163,14 @@ def create_bounded_learning_from_outcome(outcome_id: str, task_id: str, result_i
                     basis = verification_status
                 
                 learning_id = uuid.uuid4()
+                # source_learning_id references the outcome this bounded learning comes from
+                # This preserves the lineage: outcome → bounded_learning → (eventual) organisational_learning
                 cur.execute("""
                     INSERT INTO organisational_learning
-                    (org_learning_id, source_task_type, task_type, content, promotion_confidence, current_state, evidence_count, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, now(), now())
+                    (org_learning_id, source_learning_id, source_task_type, task_type, content, promotion_confidence, current_state, evidence_count, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), now())
                 """, (
-                    learning_id, task_type, task_type,
+                    learning_id, outcome_uuid, task_type, task_type,
                     Jsonb({
                         "bounded": True,
                         "verification_status": verification_status,
