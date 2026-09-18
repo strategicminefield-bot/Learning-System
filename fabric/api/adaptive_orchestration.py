@@ -29,7 +29,7 @@ class AdaptiveOrchestrationEngine:
         explicit_constraints: Optional[Dict] = None,
         force_replan_from: Optional[UUID] = None,
         approval_request_id: Optional[str] = None,
-        actor_type: str = 'system',
+        actor_type: str = 'automated_process',
         actor_reference: str = 'orchestration_engine'
     ) -> Dict[str, Any]:
         """
