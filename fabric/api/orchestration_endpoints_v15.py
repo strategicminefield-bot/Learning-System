@@ -53,19 +53,21 @@ class OrchestrationResponse(BaseModel):
     decision_id: str
     strategy_selected: Optional[str]
     worker_selected: Optional[str]
-    execution_plan: Dict
+    execution_plan: Optional[Dict] = None
+    approval_required: Optional[bool] = None
+    approval_request_id: Optional[str] = None
     
     class Config:
         arbitrary_types_allowed = True
         json_encoders = {
             Decimal: lambda v: float(v)
         }
-    confidence: float
+    confidence: Optional[float] = None
     evidence_sufficiency: str
-    rationale: Dict
-    assignment_id: Optional[str]
-    plan_id: str
-    candidates_considered: Dict
+    rationale: Optional[Dict] = None
+    assignment_id: Optional[str] = None
+    plan_id: Optional[str] = None
+    candidates_considered: Optional[Dict] = None
 
 
 class DecisionQueryResponse(BaseModel):

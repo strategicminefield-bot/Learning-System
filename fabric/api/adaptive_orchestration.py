@@ -87,19 +87,22 @@ class AdaptiveOrchestrationEngine:
             
             if not governance_check['permitted']:
                 # Governance denied the action
-                return {
+                response = {
                     'decision_id': governance_check.get('decision_id'),
                     'strategy_selected': None,
                     'worker_selected': None,
                     'execution_plan': None,
-                    'confidence': 0.0,
-                    'evidence_sufficiency': 'governance_denied',
-                    'rationale': {'governance_denial': governance_check['reason']},
+                    'confidence': None,
+                    'evidence_sufficiency': 'approval_required' if governance_check['effect'] == 'REQUIRE_APPROVAL' else 'governance_denied',
+                    'rationale': {'governance': governance_check.get('reason', 'N/A')},
                     'assignment_id': None,
                     'plan_id': None,
-                    'candidates_considered': {},
-                    'governance_decision': governance_check
+                    'candidates_considered': None
                 }
+                if governance_check['effect'] == 'REQUIRE_APPROVAL' and governance_check.get('approval_request_id'):
+                    response['approval_required'] = True
+                    response['approval_request_id'] = str(governance_check['approval_request_id'])
+                return response
             
             # Governance permitted - continue with orchestration
             # Apply constraints if ALLOW_WITH_CONSTRAINTS
