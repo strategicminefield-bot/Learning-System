@@ -395,33 +395,36 @@ def propose_learning_promotion_via_evidence(learning_id: str, worker_node_id: st
             # Create evidence record from aggregated learning
             # 
             # CRITICAL SEPARATION:
-            # evidence_category reflects: consistency of execution (success_rate)
-            # evidence_strength reflects: robustness of aggregate (number of tasks)
-            # These are LEARNING CONFIDENCE indicators, not objective success.
+            # Execution success_rate does NOT determine objective evidence category.
+            # Learning confidence comes from VERIFIED OBJECTIVE OUTCOMES, not execution.
             #
-            # DO NOT use prof_score to determine evidence category.
-            # prof_score is updated by validation_engine based on external evidence,
-            # not by node's self-assessment.
+            # This evidence reflects LEARNING EXPERIENCE ROBUSTNESS:
+            # - How many verified successes?
+            # - How many verified failures?
+            # - Independent confirmation?
+            # - Aggregate evidence strength?
             #
-            # Instead: use success_rate (did it execute?) and tasks_completed (how robust?)
+            # NOT: execution_success_rate >= 0.9 = supportive
+            # (that would conflate execution with objective success)
             
             evidence_id = uuid.uuid4()
             
-            # Determine evidence category based on execution consistency
-            # This reflects learning experience robustness, not objective success
-            if success_rate >= 0.9:
-                evidence_category = "supportive"  # Consistent execution
-                confidence = success_rate  # Confidence in consistency, not correctness
-            elif success_rate >= 0.7:
-                evidence_category = "neutral"  # Somewhat consistent
-                confidence = success_rate
-            else:
-                evidence_category = "insufficient"  # Inconsistent execution
-                confidence = success_rate
+            # Evidence category is NEUTRAL by default
+            # It should only become SUPPORTIVE or CONTRADICTORY if we have
+            # objective verification records from validation_evidence table.
+            #
+            # For now (without objective verification in task outcomes):
+            # - This evidence reflects execution experience robustness
+            # - NOT objective success/failure
+            # - Marked as NEUTRAL to prevent false generalization
+            
+            evidence_category = "neutral"  # Conservative: execution ≠ objective success
+            confidence = 0.5  # Neutral confidence for aggregated experience
             
             # Evidence strength reflects robustness of aggregate (experience base)
             # More tasks = more robust learning foundation
-            # This is about generalization confidence, not individual task correctness
+            # BUT: only if those tasks have verified objectives
+            # For now: limited strength since objectives are unverified
             evidence_strength = min(float(tasks_completed) / 10.0, 1.0)  # normalize to 10 tasks
             
             cur.execute("""
@@ -438,12 +441,14 @@ def propose_learning_promotion_via_evidence(learning_id: str, worker_node_id: st
                 confidence,
                 evidence_strength,
                 learning_uuid,
-                f"Worker learning aggregate for {task_type}: {tasks_completed} tasks, {success_rate:.2%} execution consistency",
+                f"Worker learning aggregate for {task_type}: {tasks_completed} tasks (NEUTRAL - no objective verification available)",
                 Jsonb({
                     "tasks_completed": int(tasks_completed),
                     "execution_success_rate": float(success_rate),
                     "quality_score_avg": float(quality_score) if quality_score else None,
-                    "note": "This evidence reflects LEARNING EXPERIENCE ROBUSTNESS (execution consistency + repetition), not OBJECTIVE SUCCESS. Objective success must be verified separately against task-specific acceptance criteria. quality_score is metadata. proficiency_score is governance responsibility."
+                    "note": "CRITICAL: This evidence is NEUTRAL because it reflects EXECUTION consistency, NOT OBJECTIVE SUCCESS. Execution success_rate cannot determine objective evidence category. Supportive/contradictory evidence must come from VERIFIED OBJECTIVE OUTCOMES (objective_verification validation_evidence). Execution reliability is a separate learning concern.",
+                    "evidence_basis": "execution_experience_only",
+                    "objective_verification_required": "Objective outcomes must be verified separately via task acceptance_criteria"
                 })
             ))
             
