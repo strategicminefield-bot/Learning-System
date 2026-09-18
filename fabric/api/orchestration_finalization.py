@@ -257,7 +257,7 @@ def create_verification_from_result(result_id: str, task_id: str) -> Tuple[bool,
                     INSERT INTO validation_evidence
                     (evidence_id, candidate_id, evidence_type, evidence_category,
                      confidence_score, evidence_strength, source_operational_outcome_id,
-                     evidence_summary, created_at)
+                     evidence_summary, recorded_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
                 """, (
                     evidence_id,
@@ -510,7 +510,7 @@ def propose_learning_promotion_via_evidence(learning_id: str, worker_node_id: st
                 INSERT INTO validation_evidence
                 (evidence_id, candidate_id, evidence_type, evidence_category,
                  confidence_score, evidence_strength, source_operational_outcome_id,
-                 evidence_summary, evidence_detail, created_at)
+                 evidence_summary, evidence_detail, recorded_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
             """, (
                 evidence_id,
