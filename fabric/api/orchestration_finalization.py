@@ -47,7 +47,7 @@ def finalize_result_completion(result_id: str) -> Dict[str, Any]:
         with conn.cursor() as cur:
             # Get result with attempt info
             cur.execute("""
-                SELECT r.attempt_id, a.task_id, a.node_id, a.assignment_id, a.status as assignment_status
+                SELECT r.result_id, r.attempt_id, a.attempt_id, a.task_id, a.node_id, a.assignment_id, a.status as assignment_status
                 FROM results r
                 JOIN attempts a ON r.attempt_id = a.attempt_id
                 WHERE r.result_id = %s
@@ -57,9 +57,11 @@ def finalize_result_completion(result_id: str) -> Dict[str, Any]:
             if not row:
                 return {"status": "error", "detail": "result not found"}
             
-            attempt_id, task_id, node_id, assignment_id, assignment_status = row
+            result_id_check, attempt_id_from_result, attempt_id_from_attempts, task_id, node_id, assignment_id, assignment_status = row
             
-            logger.info(f"Finalization: result={result_id}, assignment={assignment_id}, status={assignment_status}")
+            logger.info(f"Finalization: result={result_id_check}, attempt_result={attempt_id_from_result}, attempt_attempts={attempt_id_from_attempts}, assignment={assignment_id}, status={assignment_status}")
+            
+            attempt_id = attempt_id_from_result
             
             # Check if assignment is claimed (normal state for completing)
             if assignment_status != "claimed":
