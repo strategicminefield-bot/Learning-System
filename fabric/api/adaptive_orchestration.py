@@ -260,6 +260,8 @@ class AdaptiveOrchestrationEngine:
         """Generate candidate strategies from Section 14."""
         candidates = []
         
+        # 0. Ensure strategy_effectiveness is current (refresh cache from evidence)
+        self._refresh_strategy_effectiveness(task_type)
         # 1. Retrieve applicable strategies from Section 14
         self.cursor.execute(
             """SELECT s.strategy_id, s.strategy_name, sv.version_id, sv.version_number,

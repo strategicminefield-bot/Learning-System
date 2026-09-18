@@ -10,7 +10,7 @@ Authority is NOT inferred from capability, role, or success history.
 
 import uuid
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Tuple, Any
 import psycopg
 from psycopg.types.json import Jsonb
@@ -193,7 +193,7 @@ def evaluate_governance(
             approval_request_id = None
             if approval_required:
                 approval_request_id = str(uuid.uuid4())
-                approval_expires = datetime.utcnow() + timedelta(hours=24)
+                approval_expires = datetime.now(timezone.utc) + timedelta(hours=24)
                 cur.execute(
                     """
                     INSERT INTO governance_approval_requests
@@ -359,7 +359,7 @@ def create_emergency_restriction(conn, name: str, action_codes: List[str], actor
             creator_id = get_or_create_actor(conn, creator_type, creator_reference)
             
             restriction_id = str(uuid.uuid4())
-            expires_at = datetime.utcnow() + timedelta(hours=duration_hours)
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=duration_hours)
             
             cur.execute(
                 """
@@ -407,7 +407,7 @@ def verify_approval_valid(conn, approval_request_id: str) -> bool:
         if status != 'approved':
             return False
         
-        if expires_at and expires_at < datetime.utcnow():
+        if expires_at and expires_at < datetime.now(timezone.utc):
             return False
         
         return True
