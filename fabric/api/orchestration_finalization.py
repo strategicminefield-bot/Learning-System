@@ -46,10 +46,14 @@ def finalize_result_completion(result_id: str) -> Dict[str, Any]:
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             # Get result with attempt info
+            # NOTE: Read assignment status from assignments table, NOT from attempts
+            # attempts.status is stale and reflects the state when the attempt was created
             cur.execute("""
-                SELECT r.result_id, r.attempt_id, a.attempt_id, a.task_id, a.node_id, a.assignment_id, a.status as assignment_status
+                SELECT r.result_id, r.attempt_id, a.attempt_id, a.task_id, a.node_id, a.assignment_id, 
+                       aa.status as assignment_status
                 FROM results r
                 JOIN attempts a ON r.attempt_id = a.attempt_id
+                JOIN assignments aa ON a.assignment_id = aa.assignment_id
                 WHERE r.result_id = %s
             """, (result_uuid,))
             
