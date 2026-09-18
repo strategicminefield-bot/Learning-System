@@ -226,9 +226,25 @@ def record_outcome_from_result(result_id: str, assignment_id: str, task_id: str,
             
             quality_score, result_data, result_status = result_row
             
-            # Determine outcome status based on result status
-            # 'recorded' = successful execution, convert to 'success'
-            outcome_status = "success" if result_status == "recorded" else "completed"
+            # CRITICAL SEPARATION: Objective success is NOT determined by quality_score or execution status
+            # 
+            # result_status == 'recorded' means: attempt was executed and result was saved
+            # This does NOT mean: objective was achieved
+            #
+            # For outcome_status, we determine actual success from:
+            # - task specification (acceptance criteria)
+            # - observed result data
+            # - required evidence
+            # NOT from: result_status, quality_score, or node self-assessment
+            #
+            # Since task specs are currently empty/undefined, we cannot verify objective success.
+            # Safest interpretation: result_status='recorded' = execution occurred, but outcome unverified
+            # When domain adapters provide acceptance_criteria, this can be properly evaluated.
+            #
+            # For now:
+            # - 'recorded' status + non-empty result = execution_completed (unverified)
+            # - If future: criteria in task spec, outcome depends on criteria verification
+            outcome_status = "execution_completed" if result_status == "recorded" else "execution_attempted"
             
             # Create task outcome
             outcome_id = uuid.uuid4()
@@ -251,8 +267,25 @@ def record_outcome_from_result(result_id: str, assignment_id: str, task_id: str,
             
             outcome_id_ret = cur.fetchone()[0]
             
-            # Update worker learning based on outcome
-            success_value = 1.0 if outcome_status == "success" else 0.0
+            # CRITICAL SEPARATION: Learning confidence ≠ Objective success
+            # 
+            # success_value for worker_learning represents: experience and learning confidence
+            # This should be based on:
+            # - Whether the outcome is verified (has required evidence)
+            # - Quality of that verification (evidence_strength)
+            # - Consistency across repetitions
+            #
+            # NOT based on:
+            # - Node's self-assessment (quality_score)
+            # - Task execution status alone
+            # - Generic proficiency thresholds
+            #
+            # For now: Track execution as experience (1.0) regardless of unverified outcome
+            # When objective verification is added, use verified_outcome + evidence_strength
+            success_value = 1.0  # Execution occurred - counts as learning experience
+            
+            # Note: outcome_status is now unverified, so it shouldn't affect learning confidence
+            # Learning confidence should come from validation_evidence assessment instead
             
             # Get task type
             cur.execute("SELECT task_type FROM tasks WHERE task_id=%s", (task_uuid,))
@@ -268,24 +301,39 @@ def record_outcome_from_result(result_id: str, assignment_id: str, task_id: str,
             existing = cur.fetchone()
             
             if existing:
-                # Update: use incremental averages
+                # Update: increment experience counter and average metadata scores
+                # 
+                # CRITICAL: proficiency_score represents learning confidence from evidence,
+                # NOT objective success rate or quality_score.
+                # 
+                # We track:
+                # - tasks_completed: execution experience (not outcome success)
+                # - success_rate: execution success (whether it ran without error)
+                # - quality_score: node's self-assessment (metadata, for reference)
+                # - proficiency_score: to be determined by validation_engine assessment
+                #
+                # Do NOT let quality_score determine proficiency_score.
+                # Proficiency comes from validation of outcomes via evidence.
+                #
+                # For now, proficiency_score = 0.5 (neutral) until validation_engine assesses
                 cur.execute("""
                     UPDATE worker_learning SET
                         tasks_completed = tasks_completed + 1,
                         success_rate = (COALESCE(success_rate, 0) * tasks_completed + %s) / (tasks_completed + 1),
                         quality_score = (COALESCE(quality_score, 0) * tasks_completed + %s) / (tasks_completed + 1),
-                        proficiency_score = %s,
+                        proficiency_score = 0.5,
                         last_updated = now()
                     WHERE node_id=%s AND task_type=%s AND skill_area='general'
-                """, (success_value, quality_score or 0.5, quality_score or 0.5, node_uuid, task_type))
+                """, (success_value, quality_score or 0.5, node_uuid, task_type))
             else:
-                # Insert: first record
+                # Insert: first record for this node+task_type
+                # proficiency_score starts at 0.5 (neutral) pending validation evidence
                 cur.execute("""
                     INSERT INTO worker_learning
                     (learning_id, node_id, task_type, skill_area, proficiency_score,
                      tasks_completed, success_rate, quality_score, last_updated, created_at)
                     VALUES (%s, %s, %s, %s, %s, 1, %s, %s, now(), now())
-                """, (uuid.uuid4(), node_uuid, task_type, "general", quality_score or 0.5, success_value, quality_score or 0.5))
+                """, (uuid.uuid4(), node_uuid, task_type, "general", 0.5, success_value, quality_score or 0.5))
             
             conn.commit()
     
@@ -345,22 +393,35 @@ def propose_learning_promotion_via_evidence(learning_id: str, worker_node_id: st
             ))
             
             # Create evidence record from aggregated learning
-            # quality_score is metadata input; assessment comes from evidence_strength
+            # 
+            # CRITICAL SEPARATION:
+            # evidence_category reflects: consistency of execution (success_rate)
+            # evidence_strength reflects: robustness of aggregate (number of tasks)
+            # These are LEARNING CONFIDENCE indicators, not objective success.
+            #
+            # DO NOT use prof_score to determine evidence category.
+            # prof_score is updated by validation_engine based on external evidence,
+            # not by node's self-assessment.
+            #
+            # Instead: use success_rate (did it execute?) and tasks_completed (how robust?)
+            
             evidence_id = uuid.uuid4()
             
-            # Determine evidence category based on aggregate performance
-            if prof_score >= 0.8 and success_rate >= 0.8:
-                evidence_category = "supportive"
-                confidence = prof_score
-            elif prof_score >= 0.6 and success_rate >= 0.6:
-                evidence_category = "neutral"
-                confidence = 0.6
+            # Determine evidence category based on execution consistency
+            # This reflects learning experience robustness, not objective success
+            if success_rate >= 0.9:
+                evidence_category = "supportive"  # Consistent execution
+                confidence = success_rate  # Confidence in consistency, not correctness
+            elif success_rate >= 0.7:
+                evidence_category = "neutral"  # Somewhat consistent
+                confidence = success_rate
             else:
-                evidence_category = "insufficient"
-                confidence = 0.4
+                evidence_category = "insufficient"  # Inconsistent execution
+                confidence = success_rate
             
-            # Evidence strength reflects robustness (tasks completed)
-            # More tasks = more robust aggregate
+            # Evidence strength reflects robustness of aggregate (experience base)
+            # More tasks = more robust learning foundation
+            # This is about generalization confidence, not individual task correctness
             evidence_strength = min(float(tasks_completed) / 10.0, 1.0)  # normalize to 10 tasks
             
             cur.execute("""
@@ -377,13 +438,12 @@ def propose_learning_promotion_via_evidence(learning_id: str, worker_node_id: st
                 confidence,
                 evidence_strength,
                 learning_uuid,
-                f"Worker learning aggregate for {task_type}: {tasks_completed} tasks, {success_rate:.2%} success rate",
+                f"Worker learning aggregate for {task_type}: {tasks_completed} tasks, {success_rate:.2%} execution consistency",
                 Jsonb({
-                    "proficiency_score": float(prof_score),
-                    "success_rate": float(success_rate),
-                    "quality_score_avg": float(quality_score) if quality_score else None,
                     "tasks_completed": int(tasks_completed),
-                    "note": "quality_score is metadata only; evidence assessment is independent"
+                    "execution_success_rate": float(success_rate),
+                    "quality_score_avg": float(quality_score) if quality_score else None,
+                    "note": "This evidence reflects LEARNING EXPERIENCE ROBUSTNESS (execution consistency + repetition), not OBJECTIVE SUCCESS. Objective success must be verified separately against task-specific acceptance criteria. quality_score is metadata. proficiency_score is governance responsibility."
                 })
             ))
             
