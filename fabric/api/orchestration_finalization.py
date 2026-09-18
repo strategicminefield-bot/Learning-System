@@ -292,79 +292,116 @@ def record_outcome_from_result(result_id: str, assignment_id: str, task_id: str,
     return True, str(outcome_id_ret), "outcome_recorded_with_learning_update"
 
 
-def promote_learning_to_organisational(node_id: str, task_type: Optional[str] = None,
-                                       min_proficiency: float = 0.7) -> Tuple[bool, int, str]:
+def propose_learning_promotion_via_evidence(learning_id: str, worker_node_id: str, 
+                                           task_type: str) -> Tuple[bool, Optional[str], str]:
     """
-    Promote high-confidence worker learning to organisational memory.
+    EVIDENCE-BASED PROMOTION PROPOSAL
     
-    Returns: (success, count_promoted, message)
+    Creates validation candidate and evidence for worker learning to be considered for
+    organisational knowledge promotion. Does NOT automatically promote.
+    
+    Promotion decision is made through governance_engine via validation_engine,
+    respecting validation_rule_configs thresholds and approval requirements.
+    
+    Returns: (success, validation_candidate_id, message)
     """
     try:
-        node_uuid = uuid.UUID(node_id)
+        learning_uuid = uuid.UUID(learning_id)
+        node_uuid = uuid.UUID(worker_node_id)
     except ValueError:
-        return False, 0, "invalid node_id"
+        return False, None, "invalid uuid format"
     
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
-            # Find high-confidence learning
-            query_params = [node_uuid, min_proficiency]
-            where_clause = "WHERE node_id=%s AND proficiency_score >= %s AND tasks_completed >= 2"
-            
-            if task_type:
-                where_clause += " AND task_type=%s"
-                query_params.append(task_type)
-            
-            cur.execute(f"""
-                SELECT learning_id, task_type, proficiency_score, success_rate, quality_score
+            # Get worker learning details
+            cur.execute("""
+                SELECT proficiency_score, tasks_completed, success_rate, quality_score
                 FROM worker_learning
-                {where_clause}
-            """, query_params)
+                WHERE learning_id=%s
+            """, (learning_uuid,))
             
-            learnings = cur.fetchall()
-            count = 0
+            learning_row = cur.fetchone()
+            if not learning_row:
+                return False, None, "learning not found"
             
-            for learning_id, task_t, prof_score, success_rate, quality_score in learnings:
-                # Check if already promoted
-                cur.execute("""
-                    SELECT org_learning_id FROM organisational_learning
-                    WHERE source_learning_id=%s
-                """, (learning_id,))
-                
-                if cur.fetchone():
-                    continue  # Already promoted
-                
-                # Create organisational learning
-                org_id = uuid.uuid4()
-                cur.execute("""
-                    INSERT INTO organisational_learning
-                    (org_learning_id, source_learning_id, source_type, source_node_id,
-                     source_task_type, task_type, content, promotion_confidence,
-                     current_state, evidence_count, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), now())
-                """, (
-                    org_id,
-                    learning_id,
-                    "worker_learning",
-                    node_uuid,
-                    task_t,
-                    task_t,
-                    Jsonb({
-                        "source_node_id": str(node_uuid),
-                        "proficiency_score": float(prof_score),
-                        "success_rate": float(success_rate),
-                        "quality_score": float(quality_score),
-                        "promoted_at": datetime.now(timezone.utc).isoformat()
-                    }),
-                    min(float(prof_score), 0.95),  # cap at 0.95
-                    "organisational",
-                    1
-                ))
-                
-                count += 1
+            prof_score, tasks_completed, success_rate, quality_score = learning_row
+            
+            # Create validation candidate for this learning
+            # This makes the learning evidence-eligible for promotion consideration
+            candidate_id = uuid.uuid4()
+            cur.execute("""
+                INSERT INTO validation_candidates
+                (candidate_id, candidate_type, candidate_ref_id, candidate_ref_type,
+                 candidate_name, current_status, source_operational_evidence, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, now())
+            """, (
+                candidate_id,
+                "worker_learning",
+                learning_uuid,
+                "worker_learning",
+                f"Worker learning promotion: {task_type} (node={str(node_uuid)[:8]}...)",
+                "eligible",
+                True
+            ))
+            
+            # Create evidence record from aggregated learning
+            # quality_score is metadata input; assessment comes from evidence_strength
+            evidence_id = uuid.uuid4()
+            
+            # Determine evidence category based on aggregate performance
+            if prof_score >= 0.8 and success_rate >= 0.8:
+                evidence_category = "supportive"
+                confidence = prof_score
+            elif prof_score >= 0.6 and success_rate >= 0.6:
+                evidence_category = "neutral"
+                confidence = 0.6
+            else:
+                evidence_category = "insufficient"
+                confidence = 0.4
+            
+            # Evidence strength reflects robustness (tasks completed)
+            # More tasks = more robust aggregate
+            evidence_strength = min(float(tasks_completed) / 10.0, 1.0)  # normalize to 10 tasks
+            
+            cur.execute("""
+                INSERT INTO validation_evidence
+                (evidence_id, candidate_id, evidence_type, evidence_category,
+                 confidence_score, evidence_strength, source_operational_outcome_id,
+                 evidence_summary, evidence_detail, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+            """, (
+                evidence_id,
+                candidate_id,
+                "operational_aggregate",
+                evidence_category,
+                confidence,
+                evidence_strength,
+                learning_uuid,
+                f"Worker learning aggregate for {task_type}: {tasks_completed} tasks, {success_rate:.2%} success rate",
+                Jsonb({
+                    "proficiency_score": float(prof_score),
+                    "success_rate": float(success_rate),
+                    "quality_score_avg": float(quality_score) if quality_score else None,
+                    "tasks_completed": int(tasks_completed),
+                    "note": "quality_score is metadata only; evidence assessment is independent"
+                })
+            ))
             
             conn.commit()
+            logger.info(f"Created promotion proposal via evidence: candidate={str(candidate_id)[:8]}..., evidence_category={evidence_category}")
     
-    return True, count, f"promoted {count} learning items to organisational memory"
+    return True, str(candidate_id), f"Promotion proposal created with evidence category={evidence_category}. Governance/validation will assess for actual promotion."
+
+
+# NOTE: promote_learning_to_organisational() function removed.
+# This function implemented naive 0.7 threshold promotion,
+# bypassing validation_engine and governance framework.
+#
+# REPLACED BY: propose_learning_promotion_via_evidence()
+# which creates evidence for governance to assess properly.
+#
+# Core principle: evidence → verification → decision → action
+# NOT: quality_score >= 0.7 → automatic promotion
 
 
 def auto_finalize_result(result_id: str) -> Dict[str, Any]:
@@ -419,13 +456,65 @@ def auto_finalize_result(result_id: str) -> Dict[str, Any]:
     if not success:
         errors.append(f"outcome recording failed: {note}")
     
-    # Step 4: Promote learning if high-confidence
-    success, promoted_count, note = promote_learning_to_organisational(node_id)
-    result_info["learning_promotion"] = {
-        "attempted": True,
-        "promoted_count": promoted_count,
-        "note": note
-    }
+    # Step 4: CORRECTED: Propose learning for evidence-based promotion
+    # (Not automatic - governance/validation will assess)
+    # 
+    # We propose learning for consideration, but actual promotion depends on:
+    # - Validation rules (validation_rule_configs)
+    # - Evidence sufficiency assessment
+    # - Governance approval (if required)
+    #
+    # This respects the core principle: evidence → verification → decision → action
+    # NOT: quality_score >= 0.7 → automatic promotion
+    
+    # Get the worker_learning record to propose for promotion
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                # Find recent worker_learning for this node and task
+                cur.execute("""
+                    SELECT task_type FROM tasks WHERE task_id=%s
+                """, (uuid.UUID(task_id),))
+                task_row = cur.fetchone()
+                task_type = task_row[0] if task_row else None
+                
+                if task_type:
+                    # Get the most recent learning for this task type and node
+                    cur.execute("""
+                        SELECT learning_id FROM worker_learning
+                        WHERE node_id=%s AND task_type=%s
+                        ORDER BY last_updated DESC
+                        LIMIT 1
+                    """, (uuid.UUID(node_id), task_type))
+                    
+                    learning_row = cur.fetchone()
+                    if learning_row:
+                        learning_id = learning_row[0]
+                        success, proposal_candidate_id, note = propose_learning_promotion_via_evidence(
+                            str(learning_id), node_id, task_type
+                        )
+                        result_info["learning_promotion_proposal"] = {
+                            "proposed": success,
+                            "proposal_candidate_id": proposal_candidate_id,
+                            "note": note,
+                            "governance_required": "Validation/governance engine must assess"
+                        }
+                    else:
+                        result_info["learning_promotion_proposal"] = {
+                            "proposed": False,
+                            "note": "No worker_learning found for this task type"
+                        }
+                else:
+                    result_info["learning_promotion_proposal"] = {
+                        "proposed": False,
+                        "note": "Task type not found"
+                    }
+    except Exception as e:
+        logger.error(f"Learning promotion proposal failed: {str(e)}")
+        result_info["learning_promotion_proposal"] = {
+            "proposed": False,
+            "note": f"Exception: {str(e)}"
+        }
     
     return {
         "status": "finalized",
