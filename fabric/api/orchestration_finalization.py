@@ -22,6 +22,7 @@ from psycopg.types.json import Jsonb
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Tuple
 import logging
+from objective_verification import verify_objective_against_criteria
 
 logger = logging.getLogger(__name__)
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -249,7 +250,7 @@ def create_verification_from_result(result_id: str, task_id: str) -> Tuple[bool,
             
             candidate_id_ret = cur.fetchone()[0]
             
-            # Create evidence record from result quality
+            # Create evidence record with objective verification
             cur.execute("""
                 SELECT quality_score, result
                 FROM results
@@ -259,6 +260,37 @@ def create_verification_from_result(result_id: str, task_id: str) -> Tuple[bool,
             result_row = cur.fetchone()
             if result_row:
                 quality_score, result_data = result_row
+                
+                # Parse task specification if JSON string
+                task_spec = specification if isinstance(specification, dict) else {}
+                if isinstance(specification, str):
+                    try:
+                        task_spec = json.loads(specification)
+                    except:
+                        task_spec = {}
+                
+                # Parse result data if JSON string
+                result_dict = result_data if isinstance(result_data, dict) else {}
+                if isinstance(result_data, str):
+                    try:
+                        result_dict = json.loads(result_data)
+                    except:
+                        result_dict = {}
+                
+                # Verify objective against acceptance criteria
+                verification_status, verification_details = verify_objective_against_criteria(task_spec, result_dict)
+                
+                # Map verification status to evidence category
+                if verification_status == 'verified_success':
+                    evidence_category = 'supportive'
+                    confidence = 0.95
+                elif verification_status == 'verified_failure':
+                    evidence_category = 'contradictory'
+                    confidence = 0.95
+                else:
+                    # unverified, insufficient_evidence
+                    evidence_category = 'neutral'
+                    confidence = quality_score if quality_score else 0.5
                 
                 # Record as evidence
                 evidence_id = uuid.uuid4()
@@ -272,11 +304,11 @@ def create_verification_from_result(result_id: str, task_id: str) -> Tuple[bool,
                     evidence_id,
                     candidate_id_ret,
                     "operational_result",
-                    "execution_result",
-                    quality_score if quality_score else 0.5,
-                    quality_score if quality_score else 0.5,
+                    evidence_category,
+                    confidence,
+                    confidence,
                     None,
-                    f"Result from task execution with quality_score={quality_score}"
+                    f"Objective verification: {verification_status} - {json.dumps(verification_details)}"
                 ))
             
             conn.commit()
