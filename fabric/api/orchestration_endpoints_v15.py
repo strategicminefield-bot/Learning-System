@@ -12,10 +12,19 @@ from datetime import datetime
 import logging
 
 from adaptive_orchestration import AdaptiveOrchestrationEngine
+import os
+import psycopg
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/orchestration", tags=["orchestration-v15"])
+
+# Initialize database connection at module load
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://fabric:***@localhost/learning_fabric')
+
+def get_db_connection():
+    """Create database connection for this request"""
+    return psycopg.connect(DATABASE_URL)
 
 
 # ===== Request/Response Models =====
@@ -76,17 +85,10 @@ class OutcomeRecordingRequest(BaseModel):
 
 @router.post("/decide", response_model=OrchestrationResponse)
 def create_orchestration_decision(
-    request: OrchestrationRequest,
-    db_conn
+    request: OrchestrationRequest
 ):
-    """
-    Main orchestration entry point.
-    
-    Given a task, retrieve relevant learning and evidence, generate and evaluate candidates,
-    select best strategy and worker, generate execution plan, and create assignment if applicable.
-    
-    Returns complete orchestration decision with rationale, evidence, and assigned worker/plan.
-    """
+    """Create orchestration decision using adaptive orchestration engine"""
+    db_conn = get_db_connection()
     try:
         engine = AdaptiveOrchestrationEngine(db_conn)
         
@@ -103,13 +105,16 @@ def create_orchestration_decision(
     except Exception as e:
         logger.error(f"Orchestration error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db_conn.close()
 
 
 @router.get("/decisions/{decision_id}", response_model=DecisionQueryResponse)
 def get_orchestration_decision(
-    decision_id: UUID,
-    db_conn
+    decision_id: UUID
 ):
+    """Retrieve orchestration decision details"""
+    db_conn = get_db_connection()
     """
     Retrieve an orchestration decision with full details.
     
@@ -146,6 +151,8 @@ def get_orchestration_decision(
     except Exception as e:
         logger.error(f"Error retrieving decision: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db_conn.close()
 
 
 @router.get("/decisions/task/{task_id}")
