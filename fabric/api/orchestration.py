@@ -217,8 +217,8 @@ def create_assignment(assignment: AssignmentIn):
                 for row in cur.fetchall():
                     learning_records.append({
                         "learning_id": str(row[0]),
-                        "state": row[1],
-                        "content": row[2] if isinstance(row[2], dict) else {}
+                        "content": row[1] if isinstance(row[1], dict) else {},
+                        "state": row[2]
                     })
                 
                 # Store learning context in assignment metadata
@@ -634,19 +634,12 @@ def complete_assignment(assignment_id: str, payload: CompletionIn):
 
             task_id = assignment[0]
 
-            # Complete the assignment
-            cur.execute(
-                "UPDATE assignments SET status='completed', completed_at=now() "
-                "WHERE assignment_id=%s",
-                (assignment_uuid,),
-            )
-
-            # Complete the task
-            cur.execute(
-                "UPDATE tasks SET status='completed', completed_at=now() "
-                "WHERE task_id=%s",
-                (task_id,),
-            )
+            # NOTE: Assignment and task completion is handled by orchestration_finalization
+            # Do NOT complete them here - that will prevent finalization from owning the lifecycle
+            # Finalization will: verify result → create outcome → complete assignment/task
+            #
+            # Previously this code completed assignment/task prematurely,
+            # causing finalization to fail with "assignment already completed"
 
             # Return node to available
             cur.execute(
