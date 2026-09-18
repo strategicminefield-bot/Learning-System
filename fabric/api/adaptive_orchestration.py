@@ -23,6 +23,15 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 
+def json_serialize_helper(obj):
+    """Convert non-JSON-serializable objects."""
+    if isinstance(obj, UUID):
+        return str(obj)
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 class AdaptiveOrchestrationEngine:
     """Core orchestration decision engine using accumulated learning from Sections 2-14."""
 
@@ -721,14 +730,17 @@ class AdaptiveOrchestrationEngine:
         
         self.cursor.execute(
             """INSERT INTO events (
-                event_id, event_type, entity_type, entity_id,
-                current_state, metadata, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                event_id, event_type, data
+            ) VALUES (%s, %s, %s)""",
             (
-                uuid4(), event_type, 'orchestration_decision', decision_id,
-                json.dumps({"decision_id": str(decision_id), "event": event_type}),
-                json.dumps(metadata),
-                datetime.utcnow()
+                str(uuid4()),
+                f'orchestration_{event_type}',
+                json.dumps({
+                    "decision_id": str(decision_id),
+                    "event_type": event_type,
+                    "entity_type": entity_type,
+                    "metadata": metadata
+                }, default=json_serialize_helper)
             )
         )
 
