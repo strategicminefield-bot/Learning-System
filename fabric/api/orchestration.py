@@ -285,6 +285,14 @@ def claim_assignment(assignment_id: str, payload: dict):
                 (assignment_uuid,),
             )
             
+            # Get bounded learning context from assignment metadata BEFORE commit
+            cur.execute("""
+                SELECT metadata FROM assignments WHERE assignment_id=%s
+            """, (assignment_uuid,))
+            meta_row = cur.fetchone()
+            metadata = meta_row[0] if meta_row else {}
+            bounded_learning = metadata.get("bounded_learning_context", []) if isinstance(metadata, dict) else []
+            
             # Record claim event
             record_event(
                 conn,
@@ -298,14 +306,6 @@ def claim_assignment(assignment_id: str, payload: dict):
             )
 
         conn.commit()
-
-        # Get bounded learning context from assignment metadata
-        cur.execute("""
-            SELECT metadata FROM assignments WHERE assignment_id=%s
-        """, (assignment_uuid,))
-        meta_row = cur.fetchone()
-        metadata = meta_row[0] if meta_row else {}
-        bounded_learning = metadata.get("bounded_learning_context", []) if isinstance(metadata, dict) else []
         
     return {
         "status": "claimed",
