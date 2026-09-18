@@ -6,9 +6,18 @@ from psycopg.types.json import Jsonb
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
+import logging
 
 router = APIRouter()
 DATABASE_URL = os.environ["DATABASE_URL"]
+logger = logging.getLogger(__name__)
+
+# Import orchestration finalization for learning loop
+try:
+    from orchestration_finalization import auto_finalize_result
+except ImportError:
+    logger.warning("orchestration_finalization not available")
+    auto_finalize_result = None
 
 def record_event(conn, event_type, entity_type, entity_id, node_id=None, previous_state=None, current_state=None, metadata=None):
     """Record an event to the audit_events table. Call within an active transaction."""
@@ -460,6 +469,20 @@ def submit_attempt_result(attempt_id: str, payload: ResultIn):
             )
 
         conn.commit()
+
+    # Trigger orchestration finalization pipeline
+    # Connects: result → completion → verification → outcome → learning → organisational memory
+    if auto_finalize_result:
+        try:
+            finalization = auto_finalize_result(str(result_id))
+            logger.info(f"Orchestration finalization: {finalization.get('status')} for result {result_id}")
+            if finalization.get('errors'):
+                logger.warning(f"Finalization errors: {finalization.get('errors')}")
+        except Exception as e:
+            # Log but don't fail the result submission if finalization fails
+            logger.error(f"Orchestration finalization failed for result {result_id}: {e}", exc_info=True)
+    else:
+        logger.warning("orchestration_finalization not available, skipping pipeline")
 
     return {
         "status": "recorded",
