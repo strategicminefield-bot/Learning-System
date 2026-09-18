@@ -197,38 +197,37 @@ def create_assignment(assignment: AssignmentIn):
                 current_state={"status": "assigned", "task_id": str(task_uuid)},
                 metadata={"action": "assignment_created", "task_id": str(task_uuid)}
             )
+            
+            # Retrieve relevant bounded learning for this task type BEFORE commit
+            try:
+                cur.execute("SELECT task_type FROM tasks WHERE task_id=%s", (task_uuid,))
+                task_row = cur.fetchone()
+                if task_row:
+                    task_type = task_row[0]
+                    # Get recent bounded/active learning for this task type (max 5)
+                    cur.execute("""
+                        SELECT org_learning_id, content, current_state FROM organisational_learning
+                        WHERE task_type=%s AND (current_state='bounded' OR current_state='active')
+                        ORDER BY updated_at DESC LIMIT 5
+                    """, (task_type,))
+                    
+                    learning_records = []
+                    for row in cur.fetchall():
+                        learning_records.append({
+                            "learning_id": str(row[0]),
+                            "content": row[1] if isinstance(row[1], dict) else {},
+                            "state": row[2]
+                        })
+                    
+                    # Store learning context in assignment metadata
+                    if learning_records:
+                        cur.execute("""
+                            UPDATE assignments SET metadata=%s WHERE assignment_id=%s
+                        """, (Jsonb({"bounded_learning_context": learning_records}), assignment_id))
+            except Exception as e:
+                logger.warning(f"Learning retrieval in assignment creation: {e}")
 
         conn.commit()
-        
-        # NEW: Retrieve relevant bounded learning for this task type
-        try:
-            cur.execute("SELECT task_type FROM tasks WHERE task_id=%s", (task_uuid,))
-            task_row = cur.fetchone()
-            if task_row:
-                task_type = task_row[0]
-                # Get recent bounded/active learning for this task type (max 5)
-                cur.execute("""
-                    SELECT org_learning_id, content, current_state FROM organisational_learning
-                    WHERE task_type=%s AND (current_state='bounded' OR current_state='active')
-                    ORDER BY updated_at DESC LIMIT 5
-                """, (task_type,))
-                
-                learning_records = []
-                for row in cur.fetchall():
-                    learning_records.append({
-                        "learning_id": str(row[0]),
-                        "content": row[1] if isinstance(row[1], dict) else {},
-                        "state": row[2]
-                    })
-                
-                # Store learning context in assignment metadata
-                if learning_records:
-                    cur.execute("""
-                        UPDATE assignments SET metadata=%s WHERE assignment_id=%s
-                    """, (Jsonb({"bounded_learning_context": learning_records}), assignment_id))
-                    conn.commit()
-        except Exception as e:
-            logger.debug(f"Learning retrieval in assignment creation: {e}")
 
     return {"status": "assigned", "assignment_id": str(assignment_id), "task_id": str(task_uuid), "node_id": str(node_uuid)}
 
