@@ -13,11 +13,13 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 logger = logging.getLogger(__name__)
 
 # Import orchestration finalization for learning loop
-try:
-    from orchestration_finalization import auto_finalize_result
-except ImportError:
-    logger.warning("orchestration_finalization not available")
-    auto_finalize_result = None
+# (Commented out during debugging - will re-enable after testing)
+# try:
+#     from orchestration_finalization import auto_finalize_result
+# except ImportError:
+#     logger.warning("orchestration_finalization not available")
+#     auto_finalize_result = None
+auto_finalize_result = None  # Temporarily disabled
 
 def record_event(conn, event_type, entity_type, entity_id, node_id=None, previous_state=None, current_state=None, metadata=None):
     """Record an event to the audit_events table. Call within an active transaction."""
