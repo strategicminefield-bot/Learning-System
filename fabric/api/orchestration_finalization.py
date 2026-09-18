@@ -59,7 +59,8 @@ def finalize_result_completion(result_id: str) -> Dict[str, Any]:
             
             result_id_check, attempt_id_from_result, attempt_id_from_attempts, task_id, node_id, assignment_id, assignment_status = row
             
-            logger.info(f"Finalization: result={result_id_check}, attempt_result={attempt_id_from_result}, attempt_attempts={attempt_id_from_attempts}, assignment={assignment_id}, status={assignment_status}")
+            print(f"DEBUG: Finalization: result={result_id_check}, attempt_result={attempt_id_from_result}, attempt_attempts={attempt_id_from_attempts}, assignment={assignment_id}, status={assignment_status}", flush=True)
+            logger.warning(f"Finalization: result={result_id_check}, attempt_result={attempt_id_from_result}, attempt_attempts={attempt_id_from_attempts}, assignment={assignment_id}, status={assignment_status}")
             
             attempt_id = attempt_id_from_result
             
