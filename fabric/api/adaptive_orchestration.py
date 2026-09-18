@@ -263,21 +263,20 @@ class AdaptiveOrchestrationEngine:
         # 1. Retrieve applicable strategies from Section 14
         self.cursor.execute(
             """SELECT s.strategy_id, s.strategy_name, sv.version_id, sv.version_number,
-                      se.effectiveness_score, se.confidence_level, COUNT(se.evidence_id) as evidence_count,
-                      STRING_AGG(DISTINCT se.evidence_type, ',') as evidence_types
+                      COALESCE(se.success_rate, 0.0) as success_rate, se.confidence_level, COALESCE(se.evidence_count, 0) as evidence_count
+                      
                FROM strategies s
                LEFT JOIN strategy_versions sv ON s.strategy_id = sv.strategy_id
                LEFT JOIN strategy_effectiveness se ON sv.version_id = se.version_id
                WHERE s.domain_applicability ILIKE %s OR s.domain_applicability = 'general'
-               GROUP BY s.strategy_id, s.strategy_name, sv.version_id, sv.version_number,
-                        se.effectiveness_score, se.confidence_level
-               ORDER BY se.effectiveness_score DESC NULLS LAST, evidence_count DESC
+               
+               ORDER BY COALESCE(se.success_rate, 0.0) DESC NULLS LAST, evidence_count DESC
                LIMIT 10""",
             (f"%{task_type}%",)
         )
         
         for row in self.cursor.fetchall():
-            strategy_id, strategy_name, version_id, version_number, effectiveness, confidence, ev_count, ev_types = row
+            strategy_id, strategy_name, version_id, version_number, success_rate, confidence, ev_count = row
             
             # 2. Check for negative/failure evidence
             negative_evidence = self._get_negative_evidence(UUID(version_id) if version_id else strategy_id)
@@ -291,10 +290,10 @@ class AdaptiveOrchestrationEngine:
                 "strategy_name": strategy_name,
                 "version_id": str(version_id) if version_id else None,
                 "version_number": version_number,
-                "effectiveness_score": float(effectiveness) if effectiveness else 0.0,
+                "effectiveness_score": float(success_rate) if success_rate else 0.0,
                 "confidence_level": confidence,
                 "evidence_count": int(ev_count) if ev_count else 0,
-                "evidence_types": (ev_types or "").split(","),
+                "evidence_types": [],
                 "negative_evidence": negative_evidence,
                 "applicability_score": self._calculate_strategy_applicability(strategy_name, task_type)
             })
