@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 import logging
 
-from .adaptive_orchestration import AdaptiveOrchestrationEngine
+from adaptive_orchestration import AdaptiveOrchestrationEngine
 
 logger = logging.getLogger(__name__)
 
