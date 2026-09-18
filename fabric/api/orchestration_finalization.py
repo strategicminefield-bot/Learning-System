@@ -162,15 +162,23 @@ def create_bounded_learning_from_outcome(outcome_id: str, task_id: str, result_i
                     stmt = f"Observation: {task_type} insufficient evidence"
                     basis = verification_status
                 
+                # Get the node that produced this outcome
+                cur.execute("SELECT node_id FROM task_outcomes WHERE outcome_id=%s", (outcome_uuid,))
+                outcome_node_row = cur.fetchone()
+                source_node_id = outcome_node_row[0] if outcome_node_row else None
+                if not source_node_id:
+                    return False, None, "outcome node not found"
+                
                 learning_id = uuid.uuid4()
                 # source_learning_id references the outcome this bounded learning comes from
+                # source_type='outcome' marks the provenance
                 # This preserves the lineage: outcome → bounded_learning → (eventual) organisational_learning
                 cur.execute("""
                     INSERT INTO organisational_learning
-                    (org_learning_id, source_learning_id, source_task_type, task_type, content, promotion_confidence, current_state, evidence_count, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), now())
+                    (org_learning_id, source_learning_id, source_type, source_node_id, source_task_type, task_type, content, promotion_confidence, current_state, evidence_count, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), now())
                 """, (
-                    learning_id, outcome_uuid, task_type, task_type,
+                    learning_id, outcome_uuid, 'outcome', source_node_id, task_type, task_type,
                     Jsonb({
                         "bounded": True,
                         "verification_status": verification_status,
