@@ -1,0 +1,5 @@
+COMMITMENT for task a973cef8-5b02-482c-9b9d-49ebc91ed0a7
+Generated: 2026-09-25T11:12:16Z
+Verifier: Independent haiku-4.5 subagent
+Method: Mechanical derivation from learning_provenance.task_type incident tags
+EXPECTED_HASH: 2fd849a0ac8ef542381dbcd87382ba002377813d522e81db0a82ff5b04cf390c
