@@ -90,11 +90,8 @@ try:
 except ImportError:
     evolutionary_cycles_router = None
 
-# Migration utility (temporary deployment aid)
-try:
-    from migration_utility import router as migration_router
-except ImportError:
-    migration_router = None
+# Migration utility — DISABLED (LS-013: unauthenticated SQL execution endpoint)
+migration_router = None
 
 # Section 25: System Memory & Node Reconstitution
 try:
