@@ -385,7 +385,7 @@ If PROJECT_STATE, Git history, local repository, VPS repository, production data
 
 ### GitHub Branch Protection Policy
 
-**Enforced 2026-09-28**
+**Adopted 2026-09-28; enforcement pending verification**
 
 Policy for the Learning-System repo (`strategicminefield-bot/Learning-System`):
 
@@ -394,6 +394,9 @@ Policy for the Learning-System repo (`strategicminefield-bot/Learning-System`):
 - Disallow force pushes.
 - Restrict direct pushes to `main` where available.
 - VPS deploy key (`github-learning-system` alias) may push backup/sync branches such as `vps-main`.
-- VPS deploy key must NOT push directly to `main`.
-- Never use `--force` or `--force-with-lease` on this repo.
-- Any merge from `vps-main` to `main` requires owner approval.
+- VPS deploy key must NOT push directly to \`main\`.
+- Never use \`--force\` or \`--force-with-lease\` on this repo.
+- Any merge from \`vps-main\` to \`main\` requires owner approval.
+
+- The VPS working tree must be clean. Uncommitted changes in /opt/learning-fabric are live in production through the bind mount; a dirty tree is a stop condition.
+- After every VPS commit, push HEAD to vps-main.
