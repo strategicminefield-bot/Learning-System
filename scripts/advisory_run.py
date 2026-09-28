@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Advisory runner v1 — review a git push range and record advisories in Fabric.
 
-Usage: python3 scripts/advisory_run.py <base_sha> <head_sha>
+Usage: python3 scripts/advisory_run.py <base_sha> <head_sha> [<repo_name>]
 
 Read-only git commands only. Exits 0 unless recording fails.
 """
@@ -51,9 +51,10 @@ def load_env():
     die("DATABASE_URL not found in .env")
 
 def run():
-    if len(sys.argv) != 3:
-        die("Usage: " + sys.argv[0] + " <base_sha> <head_sha>")
+    if len(sys.argv) not in [3, 4]:
+        die("Usage: " + sys.argv[0] + " <base_sha> <head_sha> [<repo_name>]")
     base_sha, head_sha = sys.argv[1], sys.argv[2]
+    repo_name = sys.argv[3] if len(sys.argv) > 3 else None
     base7 = base_sha[:7] if len(base_sha) >= 7 else base_sha
     head7 = head_sha[:7] if len(head_sha) >= 7 else head_sha
 
@@ -68,7 +69,7 @@ def run():
 
     from fabric.api.advisory_engine import record_run, generate_advisories, list_run
 
-    run_id = record_run(base_sha, head_sha)
+    run_id = record_run(base_sha, head_sha, repo_name)
     generate_advisories(run_id, base_sha, head_sha)
     report = list_run(run_id)
 
