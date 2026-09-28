@@ -382,3 +382,18 @@ If PROJECT_STATE, Git history, local repository, VPS repository, production data
 - `OPENCLAW_START.md` → Read-only startup after context reset
 - `fabric/api/main.py` → Application entry point (where routers are registered)
 - `migrations/` → SQL schema and migrations
+
+### GitHub Branch Protection Policy
+
+**Enforced 2026-09-28**
+
+Policy for the Learning-System repo (`strategicminefield-bot/Learning-System`):
+
+- `main` must be protected.
+- Require pull request before merge.
+- Disallow force pushes.
+- Restrict direct pushes to `main` where available.
+- VPS deploy key (`github-learning-system` alias) may push backup/sync branches such as `vps-main`.
+- VPS deploy key must NOT push directly to `main`.
+- Never use `--force` or `--force-with-lease` on this repo.
+- Any merge from `vps-main` to `main` requires owner approval.
