@@ -411,8 +411,7 @@ def test_complete_scenario(conn):
 if __name__ == "__main__":
     import os
 
-    DATABASE_URL = os.environ.get(
-        "DATABASE_URL", "postgresql://user:password@localhost:5432/learning"
+    DATABASE_URL = os.environ["DATABASE_URL"]
     )
 
     with psycopg.connect(DATABASE_URL) as conn:

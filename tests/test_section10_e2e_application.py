@@ -414,8 +414,7 @@ def test_complete_application_workflow(conn):
 if __name__ == "__main__":
     import os
 
-    DATABASE_URL = os.environ.get(
-        "DATABASE_URL", "postgresql://user:***@localhost:5432/learning"
+    DATABASE_URL = os.environ["DATABASE_URL"]
     )
 
     with psycopg.connect(DATABASE_URL) as conn:

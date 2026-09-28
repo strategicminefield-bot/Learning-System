@@ -18,7 +18,7 @@ import uuid
 import requests
 from urllib.parse import urljoin
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000")
+API_URL = os.environ["API_URL"]
 
 class APIClient:
     def __init__(self, base_url):

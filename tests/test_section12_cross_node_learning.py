@@ -13,8 +13,8 @@ import uuid
 import psycopg
 from datetime import datetime
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000")
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://fabric:***@postgres:5432/learning_fabric")
+API_URL = os.environ["API_URL"]
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 def connect():

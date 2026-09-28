@@ -13,8 +13,8 @@ import psycopg
 import urllib.request
 import urllib.parse
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000")
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://fabric:***@postgres:5432/learning_fabric")
+API_URL = os.environ["API_URL"]
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 def connect():
     return psycopg.connect(DATABASE_URL)

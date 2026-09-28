@@ -9,7 +9,7 @@ import os
 import psycopg
 import urllib.request
 
-API_URL = "http://localhost:8000"
+API_URL = os.environ["API_URL"]
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 

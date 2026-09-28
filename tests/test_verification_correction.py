@@ -13,7 +13,8 @@ import psycopg
 from uuid import uuid4
 from datetime import datetime
 
-DATABASE_URL = "postgresql://fabric:***@localhost:5432/learning_fabric"
+import os
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 @pytest.fixture

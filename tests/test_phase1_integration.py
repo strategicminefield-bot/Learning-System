@@ -13,7 +13,8 @@ from datetime import datetime
 import time
 
 # Fabric API endpoint
-FABRIC_BASE = "http://localhost:8000/api/v1"
+import os
+FABRIC_BASE = os.environ["API_URL"] + "/api/v1"
 OPENCLAW_NODE_ID = "f5568735-f333-4491-9d99-556b68f3ded0"
 
 def test_fabric_connection():
@@ -73,7 +74,7 @@ def test_create_task():
         }
         
         # Try POST /tasks endpoint
-        resp = requests.post("http://localhost:8000/tasks", json=data, timeout=10)
+        resp = requests.post(f"{FABRIC_BASE.replace("/api/v1", "")}/tasks", json=data, timeout=10)
         
         if resp.status_code in [200, 201]:
             result = resp.json()
@@ -100,7 +101,7 @@ def test_create_assignment(task_id):
             "type": "executor"
         }
         
-        resp = requests.post("http://localhost:8000/assignments", json=data, timeout=10)
+        resp = requests.post(f"{FABRIC_BASE.replace("/api/v1", "")}/assignments", json=data, timeout=10)
         
         if resp.status_code in [200, 201]:
             result = resp.json()
