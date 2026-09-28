@@ -51,10 +51,10 @@ def main():
             os.makedirs(clone_parent, exist_ok=True)
             url = "git@github-learning-system:strategicminefield-bot/Learning-System.git"
             run_git(["clone", "--bare", url, clone_dir], "/tmp")
-            run_git(["fetch", remote, branch], clone_dir)
+            run_git(["fetch", remote, "refs/heads/" + branch + ":refs/heads/" + branch], clone_dir)
             print("Cloned " + name + " into " + clone_dir)
 
-        run_git(["fetch", remote, branch], clone_dir)
+        run_git(["fetch", remote, "refs/heads/" + branch + ":refs/heads/" + branch], clone_dir)
         head = run_git(["rev-parse", branch], clone_dir)
         print(name + ": " + branch + " at " + head[:7])
 

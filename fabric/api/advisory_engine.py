@@ -21,13 +21,13 @@ def _get_conn():
     return psycopg.connect("dbname=learning_fabric user=fabric host=127.0.0.1")
 
 
-def record_run(base_sha: str, head_sha: str) -> str:
+def record_run(base_sha: str, head_sha: str, repo_path: str = None) -> str:
     """Record a push review run and return its UUID."""
     conn = _get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO push_review_run (base_sha, head_sha) VALUES (%s, %s) RETURNING id",
-        (base_sha, head_sha)
+        "INSERT INTO push_review_run (base_sha, head_sha, repo_path) VALUES (%s, %s, %s) RETURNING id",
+        (base_sha, head_sha, repo_path)
     )
     run_id = cur.fetchone()[0]
     conn.commit()
