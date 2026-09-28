@@ -8,7 +8,7 @@ for particular kinds of tasks based on actual execution evidence.
 import uuid
 import json
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Tuple, Any
 import psycopg
 from psycopg.types.json import Json
@@ -456,7 +456,7 @@ class StrategyLearningService:
                 'task_type': task_type,
                 'domain': domain,
                 'strategies': strategies,
-                'guidance_timestamp': datetime.now(datetime.timezone.utc).isoformat()
+                'guidance_timestamp': datetime.now(timezone.utc).isoformat()
             }
         finally:
             conn.close()

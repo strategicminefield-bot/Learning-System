@@ -8,7 +8,7 @@ provenance, history, contradictions and reversibility.
 import uuid
 import json
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Tuple, Any
 import psycopg
 from psycopg.types.json import Json
@@ -41,8 +41,8 @@ class KnowledgeEvolutionService:
                    (entity_id, entity_type, task_type, original_source_id, first_evidence_at, last_evidence_at)
                    VALUES (%s, %s, %s, %s, %s, %s)""",
                 (entity_id, entity_type, task_type, original_source_id, 
-                 first_evidence_at or datetime.now(datetime.timezone.utc), 
-                 first_evidence_at or datetime.now(datetime.timezone.utc))
+                 first_evidence_at or datetime.now(timezone.utc), 
+                 first_evidence_at or datetime.now(timezone.utc))
             )
             conn.commit()
             return entity_id
@@ -308,7 +308,7 @@ class KnowledgeEvolutionService:
             cur = conn.cursor()
             
             if at_time is None:
-                at_time = datetime.now(datetime.timezone.utc)
+                at_time = datetime.now(timezone.utc)
             
             # Get effective version by finding active/most recent state at that time
             cur.execute(
