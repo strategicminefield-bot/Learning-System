@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:17
     container_name: learning-fabric-postgres
     environment:
@@ -22,6 +23,7 @@ services:
       retries: 5
 
   api:
+    restart: unless-stopped
     image: learning-fabric-api:1.0.6
     container_name: learning-fabric-api
     depends_on:
