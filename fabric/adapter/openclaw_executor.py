@@ -594,19 +594,37 @@ def main():
             claim_response = adapter.client.claim_assignment(args.assignment_id)
             if claim_response:
                 logger.info(f"Claimed bounded assignment: {args.assignment_id}")
-                # Get task_id from claim response
-                task_id = claim_response.get("task_id")
+                # task_id may not be in claim response; fetch from GET /assignments/{id}
+                try:
+                    resp = adapter.client.session.get(
+                        f"{adapter.client.root_url}/assignments/{args.assignment_id}",
+                        timeout=10
+                    )
+                    if resp.status_code == 200:
+                        assign_data = resp.json()
+                        task_id = assign_data.get("task_id")
+                    else:
+                        task_id = claim_response.get("task_id")
+                except Exception:
+                    task_id = claim_response.get("task_id")
+                
                 if task_id:
                     # Fetch task spec via FabricClient.fetch_task_spec (REST, not SSH)
                     task = adapter.client.fetch_task_spec(task_id)
                     if task:
-                        # Pass full claim response (includes task_id, status="claimed")
-                        adapter._handle_assignment(claim_response)
+                        # Build assignment dict with task_id included
+                        assign_dict = {
+                            "assignment_id": args.assignment_id,
+                            "task_id": task_id,
+                            "node_id": adapter.config.node_id,
+                            "status": "claimed"
+                        }
+                        adapter._handle_assignment(assign_dict)
                         logger.info("Bounded assignment completed")
                     else:
                         logger.error(f"Failed to fetch task spec for {task_id}")
                 else:
-                    logger.error(f"No task_id in claim response for {args.assignment_id}")
+                    logger.error(f"No task_id found for {args.assignment_id}")
             else:
                 logger.error(f"Failed to claim bounded assignment {args.assignment_id}")
         else:
