@@ -536,7 +536,7 @@ class ExecutorAdapter:
             task = self.client.fetch_task_spec(task_id)
             if not task:
                 logger.error(f"Task {task_id} not found")
-                return
+                return False
             
             # Claim assignment and capture bounded learning context
             # If already claimed (from poll_assignments or bounded mode), skip claim call
@@ -548,18 +548,48 @@ class ExecutorAdapter:
                 claim_response = self.client.claim_assignment(assignment_id)
                 if not claim_response:
                     logger.warning(f"Failed to claim assignment {assignment_id}")
-                    return
+                    return False
             
             # Extract bounded learning from claim response
             bounded_learning = claim_response.get("bounded_learning_context", [])
             if bounded_learning:
                 logger.info(f"Received {len(bounded_learning)} bounded learning record(s) in claim response")
             
-            # Create attempt (already done by claim, but get ID)
+            # Get attempt_id: from claim response, or fetch from GET /assignments/{id}
             attempt_id = claim_response.get("attempt_id")
             if not attempt_id:
-                logger.warning(f"No attempt_id in claim response for {assignment_id}")
-                return
+                try:
+                    assign_resp = self.client.session.get(
+                        f"{self.client.root_url}/assignments/{assignment_id}",
+                        timeout=10
+                    )
+                    if assign_resp.status_code == 200:
+                        assign_data = assign_resp.json()
+                        attempts = assign_data.get("attempts", [])
+                        for att in attempts:
+                            if att.get("status") in ("running", "in_progress"):
+                                attempt_id = att.get("attempt_id")
+                                break
+                except Exception as e:
+                    logger.debug(f"Error fetching assignment for attempt_id: {e}")
+
+            # If still no attempt_id, create attempt explicitly
+            if not attempt_id:
+                try:
+                    create_resp = self.client.session.post(
+                        f"{self.client.root_url}/assignments/{assignment_id}/attempts",
+                        json={"node_id": self.client.node_id},
+                        timeout=10
+                    )
+                    if create_resp.status_code in (200, 201):
+                        attempt_id = create_resp.json().get("attempt_id")
+                        logger.info(f"Created attempt: {attempt_id}")
+                except Exception as e:
+                    logger.debug(f"Error creating attempt: {e}")
+
+            if not attempt_id:
+                logger.warning(f"No attempt_id available for {assignment_id}")
+                return False
             
             # Execute with ACTUAL OpenClaw, passing bounded learning
             result = OpenClawExecutor.execute_task(task, bounded_learning)
@@ -567,8 +597,10 @@ class ExecutorAdapter:
             # Submit result
             if self.client.submit_result(attempt_id, result):
                 logger.info(f"Assignment {assignment_id} completed successfully")
+                return True
             else:
                 logger.error(f"Failed to submit result for {attempt_id}")
+                return False
         
         except Exception as e:
             logger.error(f"Error handling assignment {assignment_id}: {e}")
@@ -619,8 +651,11 @@ def main():
                             "node_id": adapter.config.node_id,
                             "status": "claimed"
                         }
-                        adapter._handle_assignment(assign_dict)
-                        logger.info("Bounded assignment completed")
+                        if adapter._handle_assignment(assign_dict):
+                            logger.info("Bounded assignment completed")
+                        else:
+                            logger.error("Bounded assignment FAILED -- result was not submitted")
+                            sys.exit(1)
                     else:
                         logger.error(f"Failed to fetch task spec for {task_id}")
                 else:
