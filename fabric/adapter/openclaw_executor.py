@@ -96,37 +96,31 @@ class FabricClient:
         self.api_v1_url = f"{fabric_url}/api/v1"
         self.session = requests.Session()
     
-    def register_node(self, config: Dict[str, Any]) -> bool:
-        """Register executor node with Fabric."""
+    def check_node_registered(self) -> bool:
+        """Check if this node is already registered. GET /workers must list our node_id."""
         try:
-            data = {
-                "node_id": self.node_id,
-                "node_type": "executor",
-                "status": "available"
-            }
-            
-            # Workers endpoint is at root level
-            resp = self.session.post(
+            resp = self.session.get(
                 f"{self.root_url}/workers",
-                json=data,
                 timeout=10
             )
-            
-            if resp.status_code in [200, 201]:
-                logger.info(f"Node registered: {self.node_id}")
-                return True
-            elif resp.status_code == 409:
-                # Already registered
-                logger.info(f"Node already registered: {self.node_id}")
-                return True
-            elif resp.status_code == 404:
-                logger.warning(f"Workers endpoint not found")
+            if resp.status_code == 200:
+                workers = resp.json()
+                # Check if our node_id is in the list
+                if isinstance(workers, list):
+                    for w in workers:
+                        if isinstance(w, dict) and w.get("node_id") == self.node_id:
+                            logger.info(f"Node {self.node_id[:12]}... confirmed registered")
+                            return True
+                        if isinstance(w, str) and self.node_id in w:
+                            logger.info(f"Node {self.node_id[:12]}... confirmed registered")
+                            return True
+                logger.warning(f"Node {self.node_id[:12]}... NOT found in /workers list")
                 return False
             else:
-                logger.warning(f"Registration failed: {resp.status_code} {resp.text}")
+                logger.warning(f"GET /workers returned {resp.status_code}")
                 return False
         except Exception as e:
-            logger.warning(f"Registration error: {e}")
+            logger.warning(f"Registration check error: {e}")
             return False
     
     def send_heartbeat(self, status: str = "available") -> bool:
@@ -493,9 +487,11 @@ class ExecutorAdapter:
         logger.info(f"Node ID: {self.config.node_id}")
         logger.info(f"Fabric URL: {self.config.fabric_url}")
         
-        # Register with Fabric
-        if not self.client.register_node(self.config.config):
-            logger.warning("Failed to register node, continuing anyway")
+        # Check Fabric for node registration (no POST)
+        if not self.client.check_node_registered():
+            logger.error(f"Node {self.config.node_id[:12]}... not registered in Fabric - STOPPING")
+            logger.error("Register the node manually via POST /workers before starting executor")
+            return
         
         self.running = True
         self._run_loop()
