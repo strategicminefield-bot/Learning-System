@@ -124,16 +124,16 @@ class FabricClient:
             return False
     
     def send_heartbeat(self, status: str = "available") -> bool:
-        """Send periodic heartbeat to Fabric."""
+        """Send periodic heartbeat to Fabric via /workers/{node_id}/status."""
         try:
             data = {
                 "status": status,
                 "last_heartbeat": datetime.now(timezone.utc).isoformat()
             }
             
-            # Heartbeat endpoint is at root level
+            # Use /workers/{node_id}/status which accepts WorkerStatusUpdate
             resp = self.session.post(
-                f"{self.root_url}/workers/{self.node_id}/heartbeat",
+                f"{self.root_url}/workers/{self.node_id}/status",
                 json=data,
                 timeout=5
             )
@@ -148,45 +148,23 @@ class FabricClient:
             return False
     
     def poll_assignments(self) -> Optional[Dict[str, Any]]:
-        """Poll for available assignments for this node."""
+        """Poll for available assignments for this node via POST /work/claim."""
         try:
-            # Since there's no REST API for polling, we query via POST to an internal endpoint
-            # For now, try querying a specific known assignment ID or use heartbeat to trigger
-            # Actually, for real execution we need to check known assignments manually
-            # or have the system use SSH to query the database
-            
-            # For E2E testing, we'll use a known assignment ID from external setup
-            # In production, the orchestrator would push assignments to nodes
-            
-            # Try to query via SSH command to database
-            import subprocess
-            try:
-                result = subprocess.run(
-                    [
-                        "ssh", "vultr",
-                        f"docker exec learning-fabric-postgres psql -U fabric -d learning_fabric -c \"SELECT assignment_id, task_id, node_id, status FROM assignments WHERE node_id = '{self.node_id}'::uuid AND status = 'assigned' LIMIT 1;\" -t"
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                
-                if result.returncode == 0 and result.stdout.strip():
-                    lines = result.stdout.strip().split('\n')
-                    for line in lines:
-                        if line and '|' in line:
-                            parts = [p.strip() for p in line.split('|')]
-                            if len(parts) >= 4:
-                                return {
-                                    "assignment_id": parts[0],
-                                    "task_id": parts[1],
-                                    "node_id": parts[2],
-                                    "status": parts[3]
-                                }
-            except Exception as ssh_error:
-                logger.debug(f"SSH query error: {ssh_error}")
-            
-            return None
+            # POST /work/claim finds and claims an available assignment for this node
+            resp = self.session.post(
+                f"{self.root_url}/work/claim",
+                params={"node_id": self.node_id},
+                timeout=10
+            )
+            if resp.status_code in [200, 201]:
+                logger.info(f"Work claimed via polling: {resp.status_code}")
+                return resp.json()
+            elif resp.status_code == 404:
+                logger.debug("No available work found")
+                return None
+            else:
+                logger.debug(f"Poll returned {resp.status_code}")
+                return None
         except Exception as e:
             logger.debug(f"Poll error: {e}")
             return None
@@ -282,6 +260,31 @@ class FabricClient:
         except Exception as e:
             logger.warning(f"Result error: {e}")
             return False
+
+    def fetch_task_spec(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch task specification via GET /tasks/{task_id}."""
+        try:
+            resp = self.session.get(
+                f"{self.root_url}/tasks/{task_id}",
+                timeout=10
+            )
+            if resp.status_code == 200:
+                task_data = resp.json()
+                # Extract specification from task data
+                spec = task_data.get("specification", {})
+                if isinstance(spec, str):
+                    spec = json.loads(spec)
+                return {
+                    "task_id": task_data.get("task_id"),
+                    "type": task_data.get("task_type"),
+                    "specification": spec
+                }
+            else:
+                logger.warning(f"Failed to fetch task {task_id}: {resp.status_code}")
+                return None
+        except Exception as e:
+            logger.warning(f"Error fetching task spec: {e}")
+            return None
 
 
 class OpenClawExecutor:
@@ -507,7 +510,7 @@ class ExecutorAdapter:
                     self.client.send_heartbeat("available")
                     self.last_heartbeat = time.time()
                 
-                # Poll for assignments
+                # Poll for assignments via REST
                 assignment = self.client.poll_assignments()
                 if assignment:
                     self._handle_assignment(assignment)
@@ -529,8 +532,8 @@ class ExecutorAdapter:
         logger.info(f"Received assignment: {assignment_id} (task: {task_id})")
         
         try:
-            # Fetch full task specification from database via SSH
-            task = self._fetch_task_spec(task_id)
+            # Fetch full task specification via REST API
+            task = self.client.fetch_task_spec(task_id)
             if not task:
                 logger.error(f"Task {task_id} not found")
                 return
@@ -564,36 +567,6 @@ class ExecutorAdapter:
         except Exception as e:
             logger.error(f"Error handling assignment {assignment_id}: {e}")
     
-    def _fetch_task_spec(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch task specification from database via SSH."""
-        try:
-            import subprocess
-            result = subprocess.run(
-                [
-                    "ssh", "vultr",
-                    f"docker exec learning-fabric-postgres psql -U fabric -d learning_fabric -c \"SELECT task_id, task_type, specification FROM tasks WHERE task_id = '{task_id}'::uuid;\" -t"
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode == 0 and result.stdout.strip():
-                lines = result.stdout.strip().split('\n')
-                for line in lines:
-                    if line and '|' in line:
-                        parts = [p.strip() for p in line.split('|')]
-                        if len(parts) >= 3:
-                            return {
-                                "task_id": parts[0],
-                                "type": parts[1],
-                                "specification": json.loads(parts[2]) if parts[2].startswith('{') else {}
-                            }
-            return None
-        except Exception as e:
-            logger.warning(f"Error fetching task spec: {e}")
-            return None
-    
     def stop(self) -> None:
         """Stop the executor adapter."""
         logger.info("Stopping executor adapter")
@@ -602,9 +575,40 @@ class ExecutorAdapter:
 
 def main():
     """Entry point."""
+    import argparse
+    parser = argparse.ArgumentParser(description="OpenClaw Executor Adapter")
+    parser.add_argument("--assignment-id", type=str, help="Handle only this specific assignment, ignore all others")
+    args = parser.parse_args()
+    
     adapter = ExecutorAdapter()
     try:
-        adapter.start()
+        if args.assignment_id:
+            logger.info(f"BOUNDED MODE: handling assignment {args.assignment_id}")
+            # Direct claim without polling — skip poll_assignments entirely
+            claim_response = adapter.client.claim_assignment(args.assignment_id)
+            if claim_response:
+                logger.info(f"Claimed bounded assignment: {args.assignment_id}")
+                # Get task_id from claim response
+                task_id = claim_response.get("task_id")
+                if task_id:
+                    # Fetch task spec via FabricClient.fetch_task_spec (REST, not SSH)
+                    task = adapter.client.fetch_task_spec(task_id)
+                    if task:
+                        adapter._handle_assignment({
+                            "assignment_id": args.assignment_id,
+                            "task_id": task_id,
+                            "node_id": adapter.config.node_id,
+                            "status": "claimed"
+                        })
+                        logger.info("Bounded assignment completed")
+                    else:
+                        logger.error(f"Failed to fetch task spec for {task_id}")
+                else:
+                    logger.error(f"No task_id in claim response for {args.assignment_id}")
+            else:
+                logger.error(f"Failed to claim bounded assignment {args.assignment_id}")
+        else:
+            adapter.start()
     except KeyboardInterrupt:
         logger.info("Interrupted")
         sys.exit(0)
