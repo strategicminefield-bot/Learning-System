@@ -524,7 +524,7 @@ class ExecutorAdapter:
             logger.error(f"Fatal error in main loop: {e}")
             raise
     
-    def _handle_assignment(self, assignment: Dict[str, Any]) -> None:
+    def _handle_assignment(self, assignment: Dict[str, Any]) -> bool:
         """Handle a single assignment."""
         assignment_id = assignment.get("assignment_id")
         task_id = assignment.get("task_id")
