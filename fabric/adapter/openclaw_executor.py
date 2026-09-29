@@ -539,10 +539,16 @@ class ExecutorAdapter:
                 return
             
             # Claim assignment and capture bounded learning context
-            claim_response = self.client.claim_assignment(assignment_id)
-            if not claim_response:
-                logger.warning(f"Failed to claim assignment {assignment_id}")
-                return
+            # If already claimed (from poll_assignments or bounded mode), skip claim call
+            status = assignment.get("status", "")
+            if status == "claimed":
+                claim_response = assignment
+                logger.info(f"Assignment {assignment_id} already claimed, using existing data")
+            else:
+                claim_response = self.client.claim_assignment(assignment_id)
+                if not claim_response:
+                    logger.warning(f"Failed to claim assignment {assignment_id}")
+                    return
             
             # Extract bounded learning from claim response
             bounded_learning = claim_response.get("bounded_learning_context", [])
@@ -594,12 +600,8 @@ def main():
                     # Fetch task spec via FabricClient.fetch_task_spec (REST, not SSH)
                     task = adapter.client.fetch_task_spec(task_id)
                     if task:
-                        adapter._handle_assignment({
-                            "assignment_id": args.assignment_id,
-                            "task_id": task_id,
-                            "node_id": adapter.config.node_id,
-                            "status": "claimed"
-                        })
+                        # Pass full claim response (includes task_id, status="claimed")
+                        adapter._handle_assignment(claim_response)
                         logger.info("Bounded assignment completed")
                     else:
                         logger.error(f"Failed to fetch task spec for {task_id}")
