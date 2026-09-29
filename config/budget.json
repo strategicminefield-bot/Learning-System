@@ -1,0 +1,15 @@
+{
+  "per_run_token_cap": 20000,
+  "per_task_budget_usd": 1.00,
+  "round_deadline_seconds": 600,
+  "daily_ceiling_usd": 5.00,
+  "max_concurrent_nodes": 3,
+  "daily_reset_utc": "00:00",
+  "max_completion_tokens": 8000,
+  "model_prices_per_mtok": {
+    "deepseek/deepseek-v4-flash": 0.30,
+    "claude-sonnet-4.6": 6.00,
+    "kimi-k3": 4.00
+  },
+  "default_model": "deepseek/deepseek-v4-flash"
+}

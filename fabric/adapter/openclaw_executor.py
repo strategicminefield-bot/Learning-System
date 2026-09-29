@@ -4,6 +4,7 @@ OpenClaw Executor Adapter for Learning Fabric
 
 Connects this OpenClaw instance to the Learning Fabric as a real executor node.
 Enables real work assignment and execution through the Fabric.
+Supports budget controls via --budget-config.
 
 Configuration: ~/.openclaw/executor_config.json (persists node identity)
 """
@@ -16,659 +17,592 @@ import time
 import sys
 import subprocess
 import logging
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
+# Budget control module
+from fabric.budget.budget_controller import (
+    BudgetConfig, BudgetController, BudgetStateStore,
+    BudgetState, BudgetExceeded, DeadlineWatchdog,
+    DEFAULT_BUDGET_DIR
+)
+
 # Configuration
 CONFIG_DIR = Path.home() / ".openclaw"
 CONFIG_FILE = CONFIG_DIR / "executor_config.json"
-# Use VPS IP for outbound connectivity from WSL to Fabric
 DEFAULT_FABRIC_URL = "http://95.179.236.41:8000"
-HEARTBEAT_INTERVAL = 30  # seconds
-POLL_INTERVAL = 5  # seconds
+HEARTBEAT_INTERVAL = 30
+POLL_INTERVAL = 5
 
-# Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
 class ExecutorConfig:
-    """Manages persistent executor configuration."""
-    
     def __init__(self):
         self.config_file = CONFIG_FILE
         self.config = self._load_or_create()
-    
+
     def _load_or_create(self) -> Dict[str, Any]:
-        """Load config or create with new node ID if not present."""
         if self.config_file.exists():
             with open(self.config_file) as f:
                 return json.load(f)
-        else:
-            # Create new config with persistent node identity
-            config = {
-                "node_id": str(uuid.uuid4()),
-                "node_type": "executor",
-                "provider": "openclaw",
-                "display_name": "OpenClaw Executor (WSL)",
-                "fabric_url": DEFAULT_FABRIC_URL,
-                "heartbeat_interval": HEARTBEAT_INTERVAL,
-                "poll_interval": POLL_INTERVAL,
-                "capabilities": [
-                    "code_execution",
-                    "task_automation",
-                    "analysis",
-                    "text_generation"
-                ],
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            self._save(config)
-            logger.info(f"Created new executor config with node_id: {config['node_id']}")
-            return config
-    
-    def _save(self, config: Dict[str, Any]) -> None:
-        """Save config to file."""
+        config = {
+            "node_id": str(uuid.uuid4()),
+            "node_type": "executor",
+            "provider": "openclaw",
+            "display_name": "OpenClaw Executor (WSL)",
+            "fabric_url": DEFAULT_FABRIC_URL,
+            "heartbeat_interval": HEARTBEAT_INTERVAL,
+            "poll_interval": POLL_INTERVAL,
+            "capabilities": ["code_execution", "task_automation", "analysis", "text_generation"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        self._save(config)
+        return config
+
+    def _save(self, config):
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_file, 'w') as f:
             json.dump(config, f, indent=2)
-    
+
     @property
     def node_id(self) -> str:
         return self.config["node_id"]
-    
+
     @property
     def fabric_url(self) -> str:
         return self.config.get("fabric_url", DEFAULT_FABRIC_URL)
 
 
 class FabricClient:
-    """Communicates with the Learning Fabric API."""
-    
     def __init__(self, fabric_url: str, node_id: str):
         self.fabric_url = fabric_url
         self.node_id = node_id
-        # Endpoints are at root level, not /api/v1
         self.root_url = fabric_url
-        self.api_v1_url = f"{fabric_url}/api/v1"
         self.session = requests.Session()
-    
+
     def check_node_registered(self) -> bool:
-        """Check if this node is already registered. GET /workers must list our node_id."""
         try:
-            resp = self.session.get(
-                f"{self.root_url}/workers",
-                timeout=10
-            )
+            resp = self.session.get(f"{self.root_url}/workers", timeout=10)
             if resp.status_code == 200:
                 workers = resp.json()
-                # Check if our node_id is in the list
                 if isinstance(workers, list):
                     for w in workers:
-                        if isinstance(w, dict) and w.get("node_id") == self.node_id:
+                        nid = w.get("node_id") if isinstance(w, dict) else w
+                        if nid == self.node_id:
                             logger.info(f"Node {self.node_id[:12]}... confirmed registered")
                             return True
-                        if isinstance(w, str) and self.node_id in w:
-                            logger.info(f"Node {self.node_id[:12]}... confirmed registered")
-                            return True
-                logger.warning(f"Node {self.node_id[:12]}... NOT found in /workers list")
                 return False
-            else:
-                logger.warning(f"GET /workers returned {resp.status_code}")
-                return False
+            return False
         except Exception as e:
             logger.warning(f"Registration check error: {e}")
             return False
-    
+
     def send_heartbeat(self, status: str = "available") -> bool:
-        """Send periodic heartbeat to Fabric via /workers/{node_id}/status."""
         try:
-            data = {
-                "status": status,
-                "last_heartbeat": datetime.now(timezone.utc).isoformat()
-            }
-            
-            # Use /workers/{node_id}/status which accepts WorkerStatusUpdate
             resp = self.session.post(
                 f"{self.root_url}/workers/{self.node_id}/status",
-                json=data,
+                json={"status": status, "last_heartbeat": datetime.now(timezone.utc).isoformat()},
                 timeout=5
             )
-            
-            if resp.status_code in [200, 201]:
-                return True
-            else:
-                logger.warning(f"Heartbeat failed: {resp.status_code}")
-                return False
+            return resp.status_code in [200, 201]
         except Exception as e:
             logger.warning(f"Heartbeat error: {e}")
             return False
-    
+
     def poll_assignments(self) -> Optional[Dict[str, Any]]:
-        """Poll for available assignments for this node via POST /work/claim."""
         try:
-            # POST /work/claim finds and claims an available assignment for this node
-            resp = self.session.post(
-                f"{self.root_url}/work/claim",
-                params={"node_id": self.node_id},
-                timeout=10
-            )
+            resp = self.session.post(f"{self.root_url}/work/claim", params={"node_id": self.node_id}, timeout=10)
             if resp.status_code in [200, 201]:
-                logger.info(f"Work claimed via polling: {resp.status_code}")
                 return resp.json()
-            elif resp.status_code == 404:
-                logger.debug("No available work found")
-                return None
-            else:
-                logger.debug(f"Poll returned {resp.status_code}")
-                return None
-        except Exception as e:
-            logger.debug(f"Poll error: {e}")
             return None
-    
+        except Exception:
+            return None
+
     def claim_assignment(self, assignment_id: str) -> Optional[dict]:
-        """Claim an assignment and return full response including bounded_learning_context."""
         try:
-            data = {"node_id": self.node_id}
-            # Claim endpoint is at root level
-            resp = self.session.post(
-                f"{self.root_url}/assignments/{assignment_id}/claim",
-                json=data,
-                timeout=10
-            )
-            
+            resp = self.session.post(f"{self.root_url}/assignments/{assignment_id}/claim",
+                                      json={"node_id": self.node_id}, timeout=10)
             if resp.status_code in [200, 201]:
-                logger.info(f"Assignment claimed: {assignment_id}")
-                return resp.json()  # Return full response with bounded_learning_context
-            else:
-                logger.warning(f"Claim failed: {resp.status_code}")
-                return None
+                return resp.json()
+            return None
         except Exception as e:
             logger.warning(f"Claim error: {e}")
             return None
-    
+
     def create_attempt(self, assignment_id: str) -> Optional[str]:
-        """Create an attempt for an assignment."""
         try:
-            data = {"node_id": self.node_id}
-            # Attempt endpoint is at root level
-            resp = self.session.post(
-                f"{self.root_url}/assignments/{assignment_id}/attempts",
-                json=data,
-                timeout=10
-            )
-            
+            resp = self.session.post(f"{self.root_url}/assignments/{assignment_id}/attempts",
+                                      json={"node_id": self.node_id}, timeout=10)
             if resp.status_code in [200, 201]:
-                attempt_data = resp.json()
-                attempt_id = attempt_data.get("attempt_id")
-                logger.info(f"Attempt created: {attempt_id}")
-                return attempt_id
-            else:
-                logger.warning(f"Attempt creation failed: {resp.status_code}")
-                return None
-        except Exception as e:
-            logger.warning(f"Attempt error: {e}")
+                return resp.json().get("attempt_id")
             return None
-    
+        except Exception:
+            return None
+
     def submit_result(self, attempt_id: str, result: Dict[str, Any]) -> bool:
-        """Submit execution result."""
         try:
-            # Extract the OpenClaw output
-            output_text = result.get("output")
-            
-            # Parse the output if it's JSON, otherwise wrap it
-            result_dict = {}
-            if isinstance(output_text, str):
-                if output_text.startswith('{'):
-                    try:
-                        result_dict = json.loads(output_text)
-                    except:
-                        # If JSON parsing fails, store as text
-                        result_dict = {"output": output_text}
-                else:
-                    result_dict = {"output": output_text}
+            output_text = result.get("output", "")
+            if isinstance(output_text, str) and output_text.startswith('{'):
+                result_dict = json.loads(output_text)
             else:
-                result_dict = output_text if isinstance(output_text, dict) else {"output": str(output_text)}
-            
-            # Ensure we have OpenClaw execution evidence in the result
+                result_dict = {"output": str(output_text)}
             result_dict["execution_evidence"] = result.get("execution_evidence", {})
-            
-            data = {
-                "node_id": self.node_id,
-                "result": result_dict,  # Must be a dict
-                "quality_score": result.get("quality_score", 0.85)
-            }
-            
-            logger.debug(f"Submitting result: {json.dumps(data, indent=2)[:200]}...")
-            
-            # Result endpoint is at root level
-            resp = self.session.post(
-                f"{self.root_url}/attempts/{attempt_id}/result",
-                json=data,
-                timeout=10
-            )
-            
-            if resp.status_code in [200, 201]:
-                logger.info(f"Result submitted successfully: {attempt_id}")
-                return True
-            else:
-                logger.warning(f"Result submission failed: {resp.status_code} {resp.text}")
-                return False
+            data = {"node_id": self.node_id, "result": result_dict,
+                    "quality_score": result.get("quality_score", 0.85)}
+            resp = self.session.post(f"{self.root_url}/attempts/{attempt_id}/result", json=data, timeout=10)
+            return resp.status_code in [200, 201]
         except Exception as e:
             logger.warning(f"Result error: {e}")
             return False
 
     def fetch_task_spec(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch task specification via GET /tasks/{task_id}."""
         try:
-            resp = self.session.get(
-                f"{self.root_url}/tasks/{task_id}",
-                timeout=10
-            )
+            resp = self.session.get(f"{self.root_url}/tasks/{task_id}", timeout=10)
             if resp.status_code == 200:
-                task_data = resp.json()
-                # Extract specification from task data
-                spec = task_data.get("specification", {})
+                td = resp.json()
+                spec = td.get("specification", {})
                 if isinstance(spec, str):
                     spec = json.loads(spec)
-                return {
-                    "task_id": task_data.get("task_id"),
-                    "type": task_data.get("task_type"),
-                    "specification": spec
-                }
-            else:
-                logger.warning(f"Failed to fetch task {task_id}: {resp.status_code}")
-                return None
-        except Exception as e:
-            logger.warning(f"Error fetching task spec: {e}")
+                return {"task_id": td.get("task_id"), "type": td.get("task_type"), "specification": spec}
             return None
+        except Exception:
+            return None
+
+    def get_node_status(self) -> Optional[str]:
+        try:
+            resp = self.session.get(f"{self.root_url}/workers/{self.node_id}", timeout=10)
+            if resp.status_code == 200:
+                return resp.json().get("status")
+            return None
+        except Exception:
+            return None
+
+    def set_node_paused(self, reason: str) -> bool:
+        try:
+            resp = self.session.post(f"{self.root_url}/workers/{self.node_id}/status",
+                                      json={"status": "paused", "reason": reason}, timeout=10)
+            return resp.status_code in [200, 201]
+        except Exception:
+            return False
 
 
 class OpenClawExecutor:
-    """Executes tasks using actual OpenClaw."""
-    
+    """Executes tasks using actual OpenClaw via subprocess."""
+
     @staticmethod
     def format_task_with_bounded_learning(task_spec: dict, bounded_learning: list) -> str:
-        """
-        Format task specification with retrieved bounded learning context.
-        Returns prompt that includes prior learning before current task.
-        """
         learning_section = ""
-        
         if bounded_learning:
-            learning_section = "\n\n" + "="*70 + "\n"
-            learning_section += "RELEVANT PRIOR LEARNING (retrieved from Fabric)\n"
-            learning_section += "="*70 + "\n"
-            
-            for i, learning in enumerate(bounded_learning, 1):
-                content = learning.get('content', {})
-                state = learning.get('state', 'unknown')
-                stmt = content.get('statement', content.get('learning_statement', ''))
-                v_status = content.get('verification_status', 'unknown')
-                prov = content.get('provenance', {})
-                
-                learning_section += f"\n[Learning {i}] (state={state}, verified={v_status})\n"
-                learning_section += f"  Statement: {stmt}\n"
-                if prov.get('outcome_id'):
-                    learning_section += f"  Source: outcome {prov['outcome_id'][:8]}...\n"
-                learning_section += f"  Applicability: Apply where relevant to current objective.\n"
-            
-            learning_section += "\n" + "="*70 + "\n"
-            learning_section += "Use above learning as evidence-informed context only.\n"
-            learning_section += "Current task objective takes priority.\n"
-            learning_section += "="*70 + "\n"
-        
-        task_prompt = f"""CURRENT TASK (Fabric assignment)
+            learning_section = "\n\n" + "=" * 70 + "\nRELEVANT PRIOR LEARNING\n" + "=" * 70 + "\n"
+            for i, lr in enumerate(bounded_learning, 1):
+                c = lr.get('content', {})
+                stmt = c.get('statement', c.get('learning_statement', ''))
+                learning_section += f"\n[Learning {i}] Statement: {stmt}\n"
+            learning_section += "\n" + "=" * 70 + "\n"
+        return f"""CURRENT TASK (Fabric assignment)
 -----
 {json.dumps(task_spec, indent=2)}{learning_section}
 
 INSTRUCTIONS:
 Execute the specified task.
-If prior learning applies to this objective, use it as guidance.
+If prior learning applies, use it as guidance.
 Return your result with quality assessment."""
-        
-        return task_prompt
 
+    @staticmethod
+    def run_openclaw(prompt: str, task_id: str, test_id: str,
+                     model: str = "deepseek/deepseek-v4-flash",
+                     timeout_seconds: int = 600,
+                     deadline_seconds: int = 0,
+                     cap_at_stop: dict = None,
+                     store: Optional['BudgetStateStore'] = None,
+                     node_id: str = "",
+                     budget_controller: Optional['BudgetController'] = None) -> str:
+        """
+        Run OpenClaw agent as subprocess with budget-compliant Popen + DeadlineWatchdog.
 
+        Returns JSON string with task result.
+        """
+        # Save prompt for proof
+        prompt_file = f"/tmp/actual_openclaw_prompt_{task_id}.txt"
+        with open(prompt_file, 'w') as f:
+            f.write("=" * 70 + f"\nACTUAL OpenClaw PROMPT (Task: {task_id})\n" + "=" * 70 + "\n\n")
+            f.write(prompt)
+            f.write("\n\n" + "=" * 70 + "\n")
 
-def execute_task(task: Dict[str, Any], bounded_learning: list = None) -> Dict[str, Any]:
-    """
-    Execute a task using ACTUAL OpenClaw.
-    
-    Args:
-        task: Task specification dict
-        bounded_learning: Optional list of bounded learning records from Fabric
-    
-    Returns structured result dict compatible with Fabric API.
-    """
-    try:
-        logger.info(f"Executing task: {task.get('task_id')}")
-        
-        # Extract task specification
-        spec = task.get("specification", {})
-        if isinstance(spec, str):
-            spec = json.loads(spec)
-        
-        # Format prompt with bounded learning if available
-        if bounded_learning:
-            logger.info(f"Including {len(bounded_learning)} bounded learning record(s) in prompt")
-            prompt_with_learning = OpenClawExecutor.format_task_with_bounded_learning(spec, bounded_learning or [])
+        # Build command
+        cmd = ["openclaw", "agent", "--agent", "executor", "--local",
+               "--model", model, "--message", prompt,
+               "--timeout", str(timeout_seconds), "--json"]
+
+        # Popen (not subprocess.run) so watchdog can write reports on kill
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        logger.info(f"OpenClaw subprocess started (PID {proc.pid}). Timeout: {timeout_seconds}s")
+
+        # Update inflight with PID
+        if store and node_id:
+            inflight = store.load_inflight(node_id)
+            if inflight:
+                inflight["pid"] = proc.pid
+                store.write_inflight(node_id, inflight)
+
+        # Start deadline watchdog if budget active
+        watchdog = None
+        if deadline_seconds > 0 and store and node_id and cap_at_stop:
+            watchdog = DeadlineWatchdog(proc, task_id, node_id,
+                                         deadline_seconds, store, cap_at_stop)
+            watchdog.start()
+
+        stdout, stderr = proc.communicate()
+
+        if proc.returncode == 0:
+            output = stdout.strip()
+            logger.info(f"✓ OpenClaw agent completed (length: {len(output)} chars)")
+            return json.dumps({
+                "task_id": task_id,
+                "test_id": test_id,
+                "result": output,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "execution_evidence": {
+                    "provider": "openclaw", "model": model,
+                    "execution_type": "real local agent via CLI --local",
+                    "success": True, "budget_controlled": budget_controller is not None,
+                    "provider_confirmed": True
+                }
+            }, indent=2)
         else:
-            prompt_with_learning = OpenClawExecutor.format_task_with_bounded_learning(spec, [])
-        
-        # Invoke ACTUAL OpenClaw - This calls the real AI model
-        openclaw_output = OpenClawExecutor._run_openclaw(task, spec, prompt_with_learning)
-        
+            logger.error(f"OpenClaw execution failed (code {proc.returncode}): {stderr}")
+            raise Exception(f"OpenClaw error: {stderr[:500]}")
+
+
+def execute_task_with_budget(task: Dict[str, Any], bounded_learning: list,
+                               budget_config_obj: Optional[BudgetConfig],
+                               budget_controller: Optional[BudgetController],
+                               node_id: str,
+                               store: Optional[BudgetStateStore]) -> Dict[str, Any]:
+    """
+    Execute task with full budget enforcement:
+    - Estimate cost from prompt length + max_completion_tokens
+    - Authorize before Popen
+    - Write inflight JSON
+    - Run OpenClaw with Popen + DeadlineWatchdog
+    - On clean completion: remove inflight
+    - On cap hit: write report, global pause, node pause
+    """
+    spec = task.get("specification", {})
+    if isinstance(spec, str):
+        spec = json.loads(spec)
+
+    prompt = OpenClawExecutor.format_task_with_bounded_learning(spec, bounded_learning)
+    task_id = task.get("task_id", "unknown")
+    test_id = spec.get("test_id", "")
+
+    if not (budget_controller and store and node_id):
+        # No budget — run directly (legacy mode)
+        return _execute_task_legacy(task, spec, prompt, task_id, test_id)
+
+    model = budget_controller.config.default_model
+    est_tokens, worst_cost = budget_controller.estimate_cost(prompt, model)
+
+    # Set per-task deadline
+    deadline_seconds = budget_controller.config.round_deadline_seconds
+    budget_controller.deadline = time.time() + deadline_seconds
+
+    # Reset per-task budget
+    budget_controller.reset_task_budget()
+
+    # Authorize (raises BudgetExceeded if denied — prevents Popen entirely)
+    budget_controller.authorize(est_tokens, worst_cost)
+
+    # Snapshot spend for inflight
+    state_snapshot = store.read_state()
+    cap_at_stop = {
+        "run_tokens": state_snapshot.get("run_tokens", 0),
+        "task_spend": state_snapshot.get("task_spend", 0),
+        "daily_spend": state_snapshot.get("daily_spend", 0),
+        "elapsed": 0
+    }
+
+    # Write inflight JSON (global_pause.flag NOT touched — only on cap hit)
+    inflight_data = {
+        "node_id": node_id,
+        "task_id": task_id,
+        "pid": None,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "deadline_at": datetime.fromtimestamp(
+            budget_controller.deadline, tz=timezone.utc
+        ).isoformat() if budget_controller.deadline else None,
+        "worst_case_cost": worst_cost,
+        "estimated_prompt_tokens": est_tokens,
+        "model": model,
+        "deadline_seconds": deadline_seconds,
+        "task_budget_before": state_snapshot.get("task_spend", 0),
+        "daily_budget_before": state_snapshot.get("daily_spend", 0)
+    }
+    store.write_inflight(node_id, inflight_data)
+
+    logger.info(f"Budget OK — est ${worst_cost:.6f} ({est_tokens} tok). "
+                f"Deadline: {deadline_seconds}s. Inflight: {node_id[:12]}...")
+
+    # Run OpenClaw (will raise BudgetExceeded if watchdog fires)
+    try:
+        openclaw_output = OpenClawExecutor.run_openclaw(
+            prompt, task_id, test_id,
+            model=model,
+            timeout_seconds=budget_controller.config.round_deadline_seconds,
+            deadline_seconds=deadline_seconds,
+            cap_at_stop=cap_at_stop,
+            store=store,
+            node_id=node_id,
+            budget_controller=budget_controller
+        )
+
+        # Clean completion — remove inflight
+        store.remove_inflight(node_id)
+        logger.info(f"Inflight removed for node {node_id[:12]}...")
+
         return {
             "status": "completed",
-            "output": openclaw_output,  # Full JSON-formatted output from OpenClaw
+            "output": openclaw_output,
             "quality_score": 0.85,
-            "execution_time": 0,
             "execution_evidence": {
-                "provider": "openclaw",
-                "model": "claude-haiku-4.5",
-                "execution_type": "real local agent execution",
-                "real_execution": True
+                "provider": "openclaw", "model": model,
+                "execution_type": "real local agent via CLI --local",
+                "budget_controlled": True, "success": True
             }
         }
-    except Exception as e:
-        logger.error(f"Execution error: {e}")
+    except BudgetExceeded:
+        # Watchdog fired — report already written, global_pause set
         return {
             "status": "failed",
-            "error": str(e),
+            "error": "Budget cap exceeded during execution",
             "output": None,
             "quality_score": 0,
-            "execution_evidence": {"error": str(e)}
+            "execution_evidence": {"budget_cap": "deadline"}
         }
-    
-    @staticmethod
-    def _run_openclaw(task: Dict[str, Any], spec: Dict[str, Any], prompt_with_learning: str = None) -> str:
-        """
-        Run ACTUAL OpenClaw execution against the real OpenClaw API.
-        
-        This invokes the actual OpenClaw running on this system via `openclaw agent` command.
-        
-        Args:
-            task: Task specification
-            spec: Task specification dict
-            prompt_with_learning: Formatted prompt with bounded learning included
-        """
-        try:
-            task_id = task.get("task_id")
-            test_id = spec.get("test_id", "")
-            
-            # Use prompt with learning if available, otherwise fall back to spec
-            if prompt_with_learning:
-                prompt = prompt_with_learning
-                logger.info(f"Invoking REAL OpenClaw agent for task {task_id} WITH BOUNDED LEARNING")
-            else:
-                prompt = spec.get("prompt", "Complete the task")
-                logger.info(f"Invoking REAL OpenClaw agent for task {task_id}")
-            
-            logger.info(f"Prompt (first 150 chars): {prompt[:150]}...")
-            
-            # Save actual prompt to /tmp for proof
-            prompt_file = f"/tmp/actual_openclaw_prompt_{task_id}.txt"
-            with open(prompt_file, 'w') as f:
-                f.write("="*70 + "\n")
-                f.write(f"ACTUAL OpenClaw PROMPT (Task: {task_id})\n")
-                f.write("="*70 + "\n\n")
-                f.write(prompt)
-                f.write("\n\n" + "="*70 + "\n")
-            logger.info(f"Prompt saved to {prompt_file} for proof")
-            
-            # ACTUAL OpenClaw execution via subprocess
-            # This calls the real openclaw agent command with local embedding
-            result = subprocess.run(
-                [
-                    "openclaw", "agent",
-                    "--agent", "main",  # Use the main agent
-                    "--local",  # Run embedded locally (faster, no gateway latency)
-                    "--message", prompt,
-                    "--timeout", "60"  # Allow more time for real AI execution
-                ],
-                capture_output=True,
-                text=True,
-                timeout=70
-            )
-            
-            if result.returncode == 0:
-                # Parse actual OpenClaw output
-                output = result.stdout.strip()
-                logger.info(f"✓ OpenClaw agent execution completed successfully (length: {len(output)} chars)")
-                logger.debug(f"Output sample: {output[:200]}...")
-                
-                # OpenClaw produced real output from an AI model
-                # Return as structured result
-                return json.dumps({
-                    "task_id": task_id,
-                    "test_id": test_id,
-                    "result": output,  # Raw OpenClaw agent output
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "execution_evidence": {
-                        "provider": "openclaw",
-                        "model": "claude-haiku-4.5",
-                        "execution_type": "real local agent via CLI --local",
-                        "success": True,
-                        "provider_confirmed": True
-                    }
-                }, indent=2)
-            else:
-                logger.error(f"OpenClaw execution failed with code {result.returncode}")
-                logger.error(f"stderr: {result.stderr}")
-                raise Exception(f"OpenClaw error: {result.stderr}")
-        
-        except subprocess.TimeoutExpired:
-            logger.error("OpenClaw execution timed out")
-            raise
-        except FileNotFoundError:
-            logger.error("openclaw command not found - is OpenClaw installed?")
-            raise
-        except Exception as e:
-            logger.error(f"OpenClaw execution failed: {e}")
-            raise
+
+
+def _execute_task_legacy(task: Dict[str, Any], spec: Dict[str, Any],
+                         prompt: str, task_id: str, test_id: str) -> Dict[str, Any]:
+    """Fallback when no budget controller is active."""
+    try:
+        output = OpenClawExecutor.run_openclaw(prompt, task_id, test_id)
+        return {
+            "status": "completed", "output": output, "quality_score": 0.85,
+            "execution_evidence": {"provider": "openclaw", "success": True}
+        }
+    except Exception as e:
+        return {
+            "status": "failed", "error": str(e), "output": None,
+            "quality_score": 0, "execution_evidence": {"error": str(e)}
+        }
 
 
 class ExecutorAdapter:
-    """Main adapter orchestrating node + execution."""
-    
-    def __init__(self):
+    def __init__(self, budget_config_path: str = None):
         self.config = ExecutorConfig()
-        self.client = FabricClient(
-            self.config.fabric_url,
-            self.config.node_id
-        )
+        self.client = FabricClient(self.config.fabric_url, self.config.node_id)
         self.running = False
         self.last_heartbeat = 0
-    
-    def start(self) -> None:
-        """Start the executor adapter."""
-        logger.info(f"Starting OpenClaw Executor Adapter")
-        logger.info(f"Node ID: {self.config.node_id}")
+
+        # Budget controls
+        self.budget_config = None
+        self.budget_store = None
+        self.budget_controller = None
+        if budget_config_path and os.path.exists(budget_config_path):
+            self.budget_config = BudgetConfig(budget_config_path)
+            self.budget_store = BudgetStateStore(os.environ.get("BUDGET_DIR", DEFAULT_BUDGET_DIR))
+            self.budget_controller = BudgetController(self.budget_config, self.budget_store, self.config.node_id)
+            logger.info(f"Budget controls active — config: {budget_config_path}")
+
+    def start(self):
+        logger.info(f"Starting OpenClaw Executor Adapter (node: {self.config.node_id[:12]}...)")
         logger.info(f"Fabric URL: {self.config.fabric_url}")
-        
-        # Check Fabric for node registration (no POST)
+
+        # === BUDGET STARTUP CHECKS (read-only) ===
+        if self.budget_store:
+            # 1. Global pause
+            if self.budget_store.is_global_paused():
+                logger.error("Global pause flag active — all runners blocked. Clear flag to resume.")
+                return
+
+            # 2. Orphan inflight scan
+            orphaned = False
+            for inflight in self.budget_store.scan_inflight():
+                pid = inflight.get("pid")
+                task_id = inflight.get("task_id", "unknown")
+                inode_id = inflight.get("node_id", "unknown")
+                if pid and pid > 0:
+                    try:
+                        os.kill(pid, 0)
+                        logger.info(f"Inflight task {task_id} (PID {pid}) still running — skipping")
+                        continue
+                    except (ProcessLookupError, PermissionError):
+                        pass
+                logger.error(f"Orphan inflight: {task_id} (node {inode_id[:12]}..., PID {pid})")
+                state = BudgetState("orphan", task_id, inode_id,
+                                    {"run_tokens": 0, "task_spend": 0, "daily_spend": 0},
+                                    "startup_orphan_scan")
+                self.budget_store.write_report(state)
+                self.budget_store.set_global_pause()
+                orphaned = True
+            if orphaned:
+                logger.error("Orphans found. Global pause set. Human must investigate.")
+                return
+
+            # 3. Node status
+            status = self.client.get_node_status()
+            if status == "paused":
+                logger.error(f"Node {self.config.node_id[:12]}... is paused. Must POST available to resume.")
+                return
+
+        # Registration check
         if not self.client.check_node_registered():
-            logger.error(f"Node {self.config.node_id[:12]}... not registered in Fabric - STOPPING")
-            logger.error("Register the node manually via POST /workers before starting executor")
+            logger.error(f"Node {self.config.node_id[:12]}... not registered")
             return
-        
+
         self.running = True
         self._run_loop()
-    
-    def _run_loop(self) -> None:
-        """Main execution loop."""
+
+    def _run_loop(self):
         logger.info("Entering main loop, polling for assignments...")
-        
         try:
             while self.running:
-                # Periodic heartbeat
                 if time.time() - self.last_heartbeat > self.config.config["heartbeat_interval"]:
                     self.client.send_heartbeat("available")
                     self.last_heartbeat = time.time()
-                
-                # Poll for assignments via REST
                 assignment = self.client.poll_assignments()
                 if assignment:
                     self._handle_assignment(assignment)
-                
-                # Brief sleep before next poll
                 time.sleep(self.config.config["poll_interval"])
         except KeyboardInterrupt:
-            logger.info("Shutdown requested")
             self.running = False
         except Exception as e:
-            logger.error(f"Fatal error in main loop: {e}")
+            logger.error(f"Fatal error: {e}")
             raise
-    
+
     def _handle_assignment(self, assignment: Dict[str, Any]) -> bool:
-        """Handle a single assignment."""
         assignment_id = assignment.get("assignment_id")
         task_id = assignment.get("task_id")
-        
         logger.info(f"Received assignment: {assignment_id} (task: {task_id})")
-        
+
         try:
-            # Fetch full task specification via REST API
             task = self.client.fetch_task_spec(task_id)
             if not task:
                 logger.error(f"Task {task_id} not found")
                 return False
-            
-            # Claim assignment and capture bounded learning context
-            # If already claimed (from poll_assignments or bounded mode), skip claim call
+
+            # Claim
             status = assignment.get("status", "")
             if status == "claimed":
                 claim_response = assignment
-                logger.info(f"Assignment {assignment_id} already claimed, using existing data")
             else:
                 claim_response = self.client.claim_assignment(assignment_id)
                 if not claim_response:
-                    logger.warning(f"Failed to claim assignment {assignment_id}")
                     return False
-            
-            # Extract bounded learning from claim response
+
             bounded_learning = claim_response.get("bounded_learning_context", [])
-            if bounded_learning:
-                logger.info(f"Received {len(bounded_learning)} bounded learning record(s) in claim response")
-            
-            # Get attempt_id: from claim response, or fetch from GET /assignments/{id}
+
+            # Get attempt_id
             attempt_id = claim_response.get("attempt_id")
             if not attempt_id:
                 try:
                     assign_resp = self.client.session.get(
-                        f"{self.client.root_url}/assignments/{assignment_id}",
-                        timeout=10
-                    )
+                        f"{self.client.root_url}/assignments/{assignment_id}", timeout=10)
                     if assign_resp.status_code == 200:
-                        assign_data = assign_resp.json()
-                        attempts = assign_data.get("attempts", [])
-                        for att in attempts:
+                        for att in assign_resp.json().get("attempts", []):
                             if att.get("status") in ("running", "in_progress"):
                                 attempt_id = att.get("attempt_id")
                                 break
-                except Exception as e:
-                    logger.debug(f"Error fetching assignment for attempt_id: {e}")
-
-            # If still no attempt_id, create attempt explicitly
+                except Exception:
+                    pass
             if not attempt_id:
                 try:
-                    create_resp = self.client.session.post(
+                    cr = self.client.session.post(
                         f"{self.client.root_url}/assignments/{assignment_id}/attempts",
-                        json={"node_id": self.client.node_id},
-                        timeout=10
-                    )
-                    if create_resp.status_code in (200, 201):
-                        attempt_id = create_resp.json().get("attempt_id")
-                        logger.info(f"Created attempt: {attempt_id}")
-                except Exception as e:
-                    logger.debug(f"Error creating attempt: {e}")
-
+                        json={"node_id": self.client.node_id}, timeout=10)
+                    if cr.status_code in (200, 201):
+                        attempt_id = cr.json().get("attempt_id")
+                except Exception:
+                    pass
             if not attempt_id:
-                logger.warning(f"No attempt_id available for {assignment_id}")
                 return False
-            
-            # Execute with ACTUAL OpenClaw, passing bounded learning
-            result = OpenClawExecutor.execute_task(task, bounded_learning)
-            
+
+            # Execute with budget
+            result = execute_task_with_budget(
+                task, bounded_learning,
+                self.budget_config, self.budget_controller,
+                self.config.node_id, self.budget_store
+            )
+
+            # Check for budget cap
+            ee = result.get("execution_evidence", {})
+            if ee.get("budget_cap"):
+                logger.error(f"Budget cap: {ee['budget_cap']}")
+                if self.budget_store:
+                    spend = ee.get("spend_at_stop", {})
+                    state = BudgetState(ee["budget_cap"], task_id, self.config.node_id, spend, "pre_model_call")
+                    self.budget_store.write_report(state)
+                    self.budget_store.set_global_pause()
+                    self.client.set_node_paused(f"Budget cap: {ee['budget_cap']}")
+                return False
+
             # Submit result
             if self.client.submit_result(attempt_id, result):
-                logger.info(f"Assignment {assignment_id} completed successfully")
+                logger.info(f"Assignment {assignment_id} completed")
                 return True
-            else:
-                logger.error(f"Failed to submit result for {attempt_id}")
-                return False
-        
+            logger.error(f"Result submission failed for {attempt_id}")
+            return False
         except Exception as e:
-            logger.error(f"Error handling assignment {assignment_id}: {e}")
-    
-    def stop(self) -> None:
-        """Stop the executor adapter."""
-        logger.info("Stopping executor adapter")
-        self.running = False
+            logger.error(f"Error handling {assignment_id}: {e}")
+            return False
 
 
 def main():
-    """Entry point."""
     import argparse
-    parser = argparse.ArgumentParser(description="OpenClaw Executor Adapter")
-    parser.add_argument("--assignment-id", type=str, help="Handle only this specific assignment, ignore all others")
+    parser = argparse.ArgumentParser(description="OpenClaw Executor with Budget Controls")
+    parser.add_argument("--assignment-id", type=str, help="Handle only this assignment")
+    parser.add_argument("--budget-config", type=str, default=None, help="Path to budget.json")
     args = parser.parse_args()
-    
-    adapter = ExecutorAdapter()
+
+    adapter = ExecutorAdapter(budget_config_path=args.budget_config)
     try:
         if args.assignment_id:
-            logger.info(f"BOUNDED MODE: handling assignment {args.assignment_id}")
-            # Direct claim without polling — skip poll_assignments entirely
-            claim_response = adapter.client.claim_assignment(args.assignment_id)
-            if claim_response:
-                logger.info(f"Claimed bounded assignment: {args.assignment_id}")
-                # task_id may not be in claim response; fetch from GET /assignments/{id}
+            logger.info(f"BOUNDED MODE: assignment {args.assignment_id}")
+            cr = adapter.client.claim_assignment(args.assignment_id)
+            if cr:
+                # Get task_id from assignment
                 try:
-                    resp = adapter.client.session.get(
-                        f"{adapter.client.root_url}/assignments/{args.assignment_id}",
-                        timeout=10
-                    )
-                    if resp.status_code == 200:
-                        assign_data = resp.json()
-                        task_id = assign_data.get("task_id")
-                    else:
-                        task_id = claim_response.get("task_id")
+                    resp = adapter.client.session.get(f"{adapter.client.root_url}/assignments/{args.assignment_id}", timeout=10)
+                    task_id = resp.json().get("task_id") if resp.status_code == 200 else cr.get("task_id")
                 except Exception:
-                    task_id = claim_response.get("task_id")
-                
+                    task_id = cr.get("task_id")
+
                 if task_id:
-                    # Fetch task spec via FabricClient.fetch_task_spec (REST, not SSH)
                     task = adapter.client.fetch_task_spec(task_id)
                     if task:
-                        # Build assignment dict with task_id included
-                        assign_dict = {
-                            "assignment_id": args.assignment_id,
-                            "task_id": task_id,
-                            "node_id": adapter.config.node_id,
-                            "status": "claimed"
-                        }
-                        if adapter._handle_assignment(assign_dict):
+                        ad = {"assignment_id": args.assignment_id, "task_id": task_id,
+                              "node_id": adapter.config.node_id, "status": "claimed"}
+                        if adapter._handle_assignment(ad):
                             logger.info("Bounded assignment completed")
                         else:
-                            logger.error("Bounded assignment FAILED -- result was not submitted")
+                            logger.error("Bounded assignment FAILED")
                             sys.exit(1)
                     else:
                         logger.error(f"Failed to fetch task spec for {task_id}")
                 else:
-                    logger.error(f"No task_id found for {args.assignment_id}")
+                    logger.error(f"No task_id for {args.assignment_id}")
             else:
-                logger.error(f"Failed to claim bounded assignment {args.assignment_id}")
+                logger.error(f"Failed to claim {args.assignment_id}")
         else:
             adapter.start()
     except KeyboardInterrupt:
-        logger.info("Interrupted")
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"Fatal: {e}")
         sys.exit(1)
 
 
